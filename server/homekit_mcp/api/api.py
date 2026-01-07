@@ -12,10 +12,23 @@ from graphql_api import field
 
 from homekit_mcp.models.db.database import get_session
 from homekit_mcp.models.db.repositories import UserRepository, DeviceRepository
-from homekit_mcp.auth import generate_token
+from homekit_mcp.auth import generate_token, AuthContext
 from homekit_mcp.middleware import get_auth_context
 
 logger = logging.getLogger(__name__)
+
+
+class AuthenticationError(Exception):
+    """Raised when authentication is required but not provided or invalid."""
+    pass
+
+
+def require_auth() -> AuthContext:
+    """Get auth context or raise AuthenticationError."""
+    auth = get_auth_context()
+    if not auth:
+        raise AuthenticationError("Authentication required")
+    return auth
 
 
 # --- Response Types ---
@@ -168,16 +181,14 @@ class API:
     # --- Authenticated Endpoints ---
 
     @field
-    async def me(self) -> Optional[UserInfo]:
+    async def me(self) -> UserInfo:
         """Get current user's account information. Requires authentication."""
-        auth = get_auth_context()
-        if not auth:
-            return None
+        auth = require_auth()
 
         with get_session() as session:
             user = UserRepository.find_by_id(session, auth.user_id)
             if not user:
-                return None
+                raise AuthenticationError("User not found")
 
             return UserInfo(
                 id=str(user.id),
@@ -190,9 +201,7 @@ class API:
     @field
     async def my_devices(self) -> List[DeviceInfo]:
         """Get all devices belonging to the current user. Requires authentication."""
-        auth = get_auth_context()
-        if not auth:
-            return []
+        auth = require_auth()
 
         with get_session() as session:
             devices = DeviceRepository.find_by_user(session, auth.user_id)
@@ -213,9 +222,7 @@ class API:
     @field
     async def device(self, device_id: str) -> Optional[DeviceInfo]:
         """Get a specific device by device_id. Requires authentication."""
-        auth = get_auth_context()
-        if not auth:
-            return None
+        auth = require_auth()
 
         with get_session() as session:
             device = DeviceRepository.find_by_device_id(session, device_id)
@@ -249,9 +256,7 @@ class API:
         Returns:
             DeviceRegistration result
         """
-        auth = get_auth_context()
-        if not auth:
-            return DeviceRegistration(success=False, error="Not authenticated")
+        auth = require_auth()
 
         try:
             with get_session() as session:
@@ -276,9 +281,7 @@ class API:
     @field(mutable=True)
     async def remove_device(self, device_id: str) -> bool:
         """Remove a device from the user's account. Requires authentication."""
-        auth = get_auth_context()
-        if not auth:
-            return False
+        auth = require_auth()
 
         with get_session() as session:
             device = DeviceRepository.find_by_device_id(session, device_id)
@@ -291,9 +294,7 @@ class API:
     @field
     async def online_devices(self) -> List[DeviceInfo]:
         """Get all online devices belonging to the current user. Requires authentication."""
-        auth = get_auth_context()
-        if not auth:
-            return []
+        auth = require_auth()
 
         with get_session() as session:
             devices = DeviceRepository.get_online_devices(session, auth.user_id)

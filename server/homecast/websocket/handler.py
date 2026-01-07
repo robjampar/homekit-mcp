@@ -18,7 +18,8 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from homecast.auth import verify_token, extract_token_from_header
 from homecast.models.db.database import get_session
 from homecast.models.db.repositories import DeviceRepository
-from homecast.websocket.redis_router import router as redis_router
+from homecast.websocket.pubsub_router import router as pubsub_router
+from homecast import config
 
 logger = logging.getLogger(__name__)
 
@@ -144,12 +145,9 @@ class ConnectionManager:
                 session.commit()
                 logger.info(f"Updated device name: {device_id} to '{device_name}'")
 
-            DeviceRepository.set_online(session, device_id)
+            DeviceRepository.set_online(session, device_id, instance_id=pubsub_router.instance_id)
 
-        logger.info(f"Device connected: {device_id} (user: {auth.user_id})")
-
-        # Register with Redis router for cross-instance routing
-        await redis_router.register_device(device_id, str(auth.user_id))
+        logger.info(f"Device connected: {device_id} (user: {auth.user_id}, instance: {pubsub_router.instance_id})")
 
         return device
 
@@ -159,10 +157,7 @@ class ConnectionManager:
             if device_id in self.connections:
                 del self.connections[device_id]
 
-        # Unregister from Redis router
-        await redis_router.unregister_device(device_id)
-
-        # Update device status in database
+        # Update device status in database (clears instance_id)
         with get_session() as session:
             DeviceRepository.set_offline(session, device_id)
 
@@ -297,12 +292,9 @@ class ConnectionManager:
                 )
 
         elif msg_type == "pong":
-            # Heartbeat response - update last seen time
+            # Heartbeat response - update last seen time in database
             with get_session() as session:
                 DeviceRepository.update_heartbeat(session, device_id)
-
-            # Refresh Redis TTL to keep device registered
-            await redis_router.refresh_device(device_id)
 
         else:
             logger.warning(f"Unknown message type from {device_id}: {msg_type}")
@@ -417,21 +409,51 @@ async def ping_clients():
             await connection_manager.disconnect(device_id)
 
 
-async def init_redis_router():
-    """Initialize Redis router for cross-instance WebSocket routing."""
+async def init_pubsub_router():
+    """Initialize Pub/Sub router for cross-instance WebSocket routing."""
     # Set the local handler for requests to devices on this instance
-    redis_router.set_local_handler(connection_manager.send_request)
+    pubsub_router.set_local_handler(connection_manager.send_request)
 
-    # Connect to Redis
-    await redis_router.connect()
+    # Connect to Pub/Sub and Firestore
+    await pubsub_router.connect()
 
-    logger.info(f"Redis router initialized (enabled={redis_router.enabled})")
+    logger.info(f"Pub/Sub router initialized (enabled={pubsub_router.enabled})")
 
 
-async def shutdown_redis_router():
-    """Shutdown Redis router on app shutdown."""
-    await redis_router.disconnect()
-    logger.info("Redis router disconnected")
+async def shutdown_pubsub_router():
+    """Shutdown Pub/Sub router on app shutdown."""
+    await pubsub_router.disconnect()
+    logger.info("Pub/Sub router disconnected")
+
+
+async def get_user_device_id(user_id: uuid.UUID) -> Optional[str]:
+    """
+    Get first connected device for a user.
+
+    Checks local connections first (fast), then falls back to database lookup
+    which may return a device on another instance.
+    """
+    # 1. Check local connections first (fast, always works)
+    #    Skip if GCP_SKIP_LOCAL_LOOKUP is set (for testing cross-instance routing)
+    if not config.GCP_SKIP_LOCAL_LOOKUP:
+        local_device = await connection_manager.get_user_device(user_id)
+        if local_device:
+            return local_device
+
+    # 2. Check database for online devices (may be on another instance)
+    with get_session() as session:
+        device = DeviceRepository.get_user_online_device(session, user_id)
+        if device:
+            return device.device_id
+
+    # 3. Fallback to local if we skipped it earlier
+    if config.GCP_SKIP_LOCAL_LOOKUP:
+        local_device = await connection_manager.get_user_device(user_id)
+        if local_device:
+            return local_device
+
+    # 4. No device found
+    return None
 
 
 async def route_request(
@@ -441,13 +463,13 @@ async def route_request(
     timeout: float = 30.0
 ) -> Dict[str, Any]:
     """
-    Route a request to a device, using Redis if needed for cross-instance routing.
+    Route a request to a device, using Pub/Sub if needed for cross-instance routing.
 
     This is the main entry point for sending requests to devices - it handles
     both local and remote devices transparently.
     """
-    if redis_router.enabled:
-        return await redis_router.send_request(device_id, action, payload, timeout)
+    if pubsub_router.enabled:
+        return await pubsub_router.send_request(device_id, action, payload, timeout)
     else:
         # Local-only mode
         return await connection_manager.send_request(device_id, action, payload, timeout)

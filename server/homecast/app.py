@@ -28,8 +28,8 @@ from homecast.models.db.database import (
 from homecast.websocket.handler import (
     websocket_endpoint,
     ping_clients,
-    init_redis_router,
-    shutdown_redis_router,
+    init_pubsub_router,
+    shutdown_pubsub_router,
 )
 
 
@@ -74,8 +74,8 @@ def create_app() -> Starlette:
         elif getattr(config, "CREATE_DB_ON_STARTUP", False):
             create_db_and_tables()
 
-        # Initialize Redis router for cross-instance WebSocket routing
-        await init_redis_router()
+        # Initialize Pub/Sub router for cross-instance WebSocket routing
+        await init_pubsub_router()
 
         # Start background tasks
         ping_task = asyncio.create_task(ping_clients())
@@ -90,7 +90,7 @@ def create_app() -> Starlette:
         except asyncio.CancelledError:
             pass
 
-        await shutdown_redis_router()
+        await shutdown_pubsub_router()
         logger.info("HomeCast server shutting down")
 
     # Create main app

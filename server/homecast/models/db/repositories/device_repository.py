@@ -83,6 +83,7 @@ class DeviceRepository(BaseRepository):
         cls,
         session: Session,
         device_id: str,
+        instance_id: Optional[str] = None,
         home_count: int = 0,
         accessory_count: int = 0
     ) -> Optional[Device]:
@@ -93,6 +94,7 @@ class DeviceRepository(BaseRepository):
 
         device.status = DeviceStatus.ONLINE.value
         device.last_seen_at = datetime.now(timezone.utc)
+        device.instance_id = instance_id
         device.home_count = home_count
         device.accessory_count = accessory_count
 
@@ -110,6 +112,7 @@ class DeviceRepository(BaseRepository):
             return None
 
         device.status = DeviceStatus.OFFLINE.value
+        device.instance_id = None
         return cls.update(session, device)
 
     @classmethod
@@ -152,3 +155,28 @@ class DeviceRepository(BaseRepository):
             return False
 
         return cls.delete(session, device)
+
+    @classmethod
+    def get_user_online_device(
+        cls,
+        session: Session,
+        user_id: uuid.UUID
+    ) -> Optional[Device]:
+        """Get first online device for a user (with instance info)."""
+        statement = (
+            select(Device)
+            .where(Device.user_id == user_id)
+            .where(Device.status == DeviceStatus.ONLINE.value)
+            .limit(1)
+        )
+        return session.exec(statement).one_or_none()
+
+    @classmethod
+    def find_by_instance(
+        cls,
+        session: Session,
+        instance_id: str
+    ) -> List[Device]:
+        """Find all devices connected to a specific instance."""
+        statement = select(Device).where(Device.instance_id == instance_id)
+        return list(session.exec(statement).all())

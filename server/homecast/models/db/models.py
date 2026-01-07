@@ -75,10 +75,28 @@ class Device(BaseModel, table=True):
     # Connection status
     status: str = Field(default=DeviceStatus.OFFLINE.value)
     last_seen_at: Optional[datetime] = Field(default=None)
+    instance_id: Optional[str] = Field(default=None, index=True,
+        description="Cloud Run instance ID where device is connected")
 
     # HomeKit info (cached from last connection)
     home_count: int = Field(default=0)
     accessory_count: int = Field(default=0)
+
+
+class TopicSlot(SQLModel, table=True):
+    """
+    Pub/Sub topic slots for cross-instance routing.
+
+    Instead of creating a topic per Cloud Run revision, we use a fixed pool
+    of topics (e.g., homecast-a, homecast-b, etc.). Each instance claims
+    a slot on startup and releases it on shutdown.
+    """
+    __tablename__ = "topic_slots"
+
+    slot_name: str = Field(primary_key=True)  # e.g., "a", "b", "c"
+    instance_id: Optional[str] = Field(default=None, index=True)  # Cloud Run revision ID
+    claimed_at: Optional[datetime] = Field(default=None)
+    last_heartbeat: Optional[datetime] = Field(default=None)
 
 
 __all__ = [
@@ -86,4 +104,5 @@ __all__ = [
     "User",
     "Device",
     "DeviceStatus",
+    "TopicSlot",
 ]

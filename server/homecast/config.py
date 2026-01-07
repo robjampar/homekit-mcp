@@ -29,8 +29,10 @@ ALLOWED_CORS_ORIGINS: list[str] = [
 # Database Configuration
 DATABASE_URL: str = "sqlite:///./homecast.db"
 
-# Redis Configuration (for WebSocket routing across instances)
-REDIS_URL: str = ""  # e.g., "redis://10.0.0.1:6379" - empty means local-only mode
+# Cross-instance routing (GCP Pub/Sub)
+GCP_PROJECT_ID: str = ""  # e.g., "my-project-id" - empty means local-only mode
+GCP_PUBSUB_TOPIC_PREFIX: str = "homecast-instance"  # Topics will be: homecast-instance-a7f2, etc.
+GCP_SKIP_LOCAL_LOOKUP: bool = False  # Set True to force all lookups through GCP (for testing)
 
 # JWT Configuration
 JWT_SECRET: str = "change-me-in-production"

@@ -18,7 +18,7 @@ dependencies = [
     "python-dotenv",
     "pyjwt[crypto]",
     "websockets",
-    "redis>=5.0.0",
+    "google-cloud-pubsub>=2.0.0",
 ]
 
 [project.urls]

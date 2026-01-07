@@ -42,9 +42,6 @@ class WebSocketClient {
 
         // Start ping task
         startPingTask()
-
-        // Send initial sync
-        await sendConfigurationUpdate()
     }
 
     func disconnect() {
@@ -77,8 +74,8 @@ class WebSocketClient {
         switch message.type {
         case .request:
             await handleRequest(message)
-        case .response, .event:
-            // Responses and events from server (not expected in this direction)
+        case .response:
+            // Responses from server (not expected - we only send responses)
             break
         }
     }
@@ -213,65 +210,6 @@ class WebSocketClient {
         }
     }
 
-    // MARK: - Events (App → Server)
-
-    func sendConfigurationUpdate() async {
-        let homes = await MainActor.run { homeKitManager.listHomes() }
-
-        let event = ProtocolMessage(
-            id: UUID().uuidString,
-            type: .event,
-            action: "home.configurationChanged",
-            payload: [
-                "changeType": .string("sync"),
-                "homes": .array(homes.map { homeToJSON($0) }),
-                "timestamp": .string(ISO8601DateFormatter().string(from: Date()))
-            ]
-        )
-        try? await send(event)
-    }
-
-    func sendStateChange(accessoryId: String, accessoryName: String, changes: [(type: String, oldValue: Any?, newValue: Any)]) async {
-        let changesArray: [JSONValue] = changes.map { change in
-            var obj: [String: JSONValue] = [
-                "characteristicType": .string(change.type),
-                "newValue": jsonValue(from: change.newValue)
-            ]
-            if let old = change.oldValue {
-                obj["oldValue"] = jsonValue(from: old)
-            }
-            return .object(obj)
-        }
-
-        let event = ProtocolMessage(
-            id: UUID().uuidString,
-            type: .event,
-            action: "accessory.stateChanged",
-            payload: [
-                "accessoryId": .string(accessoryId),
-                "accessoryName": .string(accessoryName),
-                "changes": .array(changesArray),
-                "timestamp": .string(ISO8601DateFormatter().string(from: Date()))
-            ]
-        )
-        try? await send(event)
-    }
-
-    func sendReachabilityChange(accessoryId: String, accessoryName: String, isReachable: Bool) async {
-        let event = ProtocolMessage(
-            id: UUID().uuidString,
-            type: .event,
-            action: "accessory.reachabilityChanged",
-            payload: [
-                "accessoryId": .string(accessoryId),
-                "accessoryName": .string(accessoryName),
-                "isReachable": .bool(isReachable),
-                "timestamp": .string(ISO8601DateFormatter().string(from: Date()))
-            ]
-        )
-        try? await send(event)
-    }
-
     // MARK: - Helpers
 
     private func homeToJSON(_ home: HomeModel) -> JSONValue {
@@ -384,9 +322,8 @@ struct ProtocolMessage: Codable {
     var error: ProtocolError?
 
     enum MessageType: String, Codable {
-        case request
-        case response
-        case event
+        case request   // Server → App
+        case response  // App → Server
     }
 }
 

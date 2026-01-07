@@ -15,7 +15,7 @@ All messages are JSON with this structure:
 ```json
 {
   "id": "uuid-v4",
-  "type": "request|response|event",
+  "type": "request|response",
   "action": "action.name",
   "payload": { ... },
   "error": { "code": "ERROR_CODE", "message": "Human readable message" }
@@ -23,7 +23,7 @@ All messages are JSON with this structure:
 ```
 
 - `id`: Unique message ID (used to correlate requests/responses)
-- `type`: Message type
+- `type`: `request` (server → app) or `response` (app → server)
 - `action`: The operation being performed
 - `payload`: Action-specific data
 - `error`: Present only on error responses
@@ -336,72 +336,6 @@ Execute a scene.
 
 ---
 
-## Events (App → Server)
-
-Events are pushed from the app to the server when state changes occur.
-
-### accessory.stateChanged
-
-Sent when an accessory's characteristic value changes.
-
-```json
-{
-  "id": "uuid",
-  "type": "event",
-  "action": "accessory.stateChanged",
-  "payload": {
-    "accessoryId": "uuid",
-    "accessoryName": "Living Room Light",
-    "changes": [
-      {
-        "characteristicType": "power-state",
-        "oldValue": false,
-        "newValue": true
-      }
-    ],
-    "timestamp": "2025-01-07T12:00:00Z"
-  }
-}
-```
-
-### accessory.reachabilityChanged
-
-Sent when an accessory becomes reachable or unreachable.
-
-```json
-{
-  "id": "uuid",
-  "type": "event",
-  "action": "accessory.reachabilityChanged",
-  "payload": {
-    "accessoryId": "uuid",
-    "accessoryName": "Kitchen Light",
-    "isReachable": false,
-    "timestamp": "2025-01-07T12:00:00Z"
-  }
-}
-```
-
-### home.configurationChanged
-
-Sent when home configuration changes (accessory added/removed, room changed, etc.).
-
-```json
-{
-  "id": "uuid",
-  "type": "event",
-  "action": "home.configurationChanged",
-  "payload": {
-    "homeId": "uuid",
-    "homeName": "My Home",
-    "changeType": "accessoryAdded|accessoryRemoved|roomAdded|roomRemoved|updated",
-    "timestamp": "2025-01-07T12:00:00Z"
-  }
-}
-```
-
----
-
 ## Error Codes
 
 | Code | Description |
@@ -461,25 +395,23 @@ Common characteristic types used in the protocol:
 
 ## Connection Lifecycle
 
-1. **Connect**: App connects to WebSocket with auth token
-2. **Authenticate**: Server validates token and sends `connected` event
-3. **Sync**: App sends initial state with `home.configurationChanged` event
-4. **Operate**: Bidirectional request/response and events
-5. **Heartbeat**: Ping/pong every 30 seconds
-6. **Reconnect**: On disconnect, app reconnects with exponential backoff
+1. **Connect**: App connects to WebSocket with auth token in header
+2. **Operate**: Server sends requests, app responds
+3. **Heartbeat**: Ping/pong every 30 seconds
+4. **Reconnect**: On disconnect, app reconnects with exponential backoff
 
 ```
 App                                     Server
  |                                        |
  |-------- WebSocket Connect ------------>|
- |<------- connected event ---------------|
- |-------- home.configurationChanged ---->|
+ |         (Bearer token in header)       |
  |                                        |
  |<------- homes.list request ------------|
  |-------- homes.list response ---------->|
  |                                        |
+ |<------- accessories.list request ------|
+ |-------- accessories.list response ---->|
+ |                                        |
  |<------- characteristic.set request ----|
  |-------- characteristic.set response -->|
- |                                        |
- |-------- accessory.stateChanged ------->|
  |                                        |

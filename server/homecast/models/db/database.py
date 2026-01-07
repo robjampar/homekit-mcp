@@ -44,7 +44,7 @@ def get_engine() -> Engine:
                 pool_timeout=20,
                 connect_args={
                     "connect_timeout": 10,
-                    "application_name": "homekit-mcp",
+                    "application_name": "homecast",
                     "options": "-c statement_timeout=30000",
                     "keepalives": 1,
                     "keepalives_idle": 30,

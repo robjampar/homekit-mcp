@@ -84,13 +84,14 @@ struct LoginView: View {
                     }
 
                     Button(action: login) {
-                        if isLoading {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
+                        ZStack {
                             Text("Sign In")
-                                .frame(maxWidth: .infinity)
+                                .opacity(isLoading ? 0 : 1)
+                            if isLoading {
+                                ProgressView()
+                            }
                         }
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canLogin || isLoading)
@@ -247,7 +248,8 @@ struct WebViewContainer: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        // Use a reasonable initial frame to avoid CoreGraphics NaN errors
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 100, height: 100), configuration: config)
         webView.load(URLRequest(url: url))
         return webView
     }

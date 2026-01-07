@@ -22,8 +22,8 @@ ALLOWED_CORS_ORIGINS: list[str] = [
     "https://homecast.cloud",
     "https://www.homecast.cloud",
     "https://fc18532a-51b0-461b-8f4d-d9ab847d3c95.lovableproject.com",
-    "https://homekit-mcp.lovable.app",
-    "https://preview--homekit-mcp.lovable.app",
+    "https://homecast.lovable.app",
+    "https://preview--homecast.lovable.app",
 ]
 
 # Database Configuration

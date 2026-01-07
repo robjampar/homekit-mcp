@@ -5,11 +5,11 @@ substitutions:
   # Artifact Registry hostname
   _AR_HOSTNAME: "europe-west1-docker.pkg.dev"
   # Artifact Registry repository name
-  _AR_REPO: "homekit-mcp"
+  _AR_REPO: "homecast"
   # Image name within the repository
-  _IMAGE_NAME: "homekit-mcp"
+  _IMAGE_NAME: "homecast"
   # Service name to deploy to
-  _SERVICE_NAME: homekit-mcp
+  _SERVICE_NAME: homecast
   # Project ID
   _PROJECT_ID: parob-297412
   # Deploy region

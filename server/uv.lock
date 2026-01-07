@@ -412,7 +412,7 @@ wheels = [
 ]
 
 [[package]]
-name = "homekit-mcp"
+name = "homecast"
 source = { editable = "." }
 dependencies = [
     { name = "graphql-api" },

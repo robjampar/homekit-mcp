@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import uuid
+from concurrent.futures import Future as ThreadFuture
 from typing import Any, Callable, Dict, Optional
 
 from homecast import config
@@ -59,7 +60,7 @@ class PubSubRouter:
         self._publisher = None
         self._subscriber = None
         self._subscription_future = None
-        self._pending_requests: Dict[str, tuple[asyncio.Future, asyncio.AbstractEventLoop]] = {}
+        self._pending_requests: Dict[str, ThreadFuture] = {}
         self._local_handler: Optional[Callable] = None
         self._enabled = bool(config.GCP_PROJECT_ID)
         self._topic_path = None
@@ -258,11 +259,9 @@ class PubSubRouter:
         # Route to remote instance via Pub/Sub
         correlation_id = str(uuid.uuid4())
 
-        # Use the current running loop, not the stored one (they may differ in async contexts)
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future = loop.create_future()
-        # Store both the future and its loop so the callback can resolve it correctly
-        self._pending_requests[correlation_id] = (future, loop)
+        # Use concurrent.futures.Future - works across threads without event loop issues
+        future: ThreadFuture = ThreadFuture()
+        self._pending_requests[correlation_id] = future
 
         logger.info(f"Routing request {correlation_id[:8]}: {self._slot_name} -> {target_slot} (instance: {device_instance_id}, device: {device_id}, action: {action})")
 
@@ -284,15 +283,19 @@ class PubSubRouter:
             except Exception as e:
                 raise ValueError(f"Failed to route to slot {target_slot}: {e}")
 
-            result = await asyncio.wait_for(future, timeout=timeout)
+            # Wait for result using run_in_executor (ThreadFuture.result blocks)
+            loop = asyncio.get_running_loop()
+            try:
+                result = await loop.run_in_executor(None, future.result, timeout)
+            except Exception as e:
+                if "timed out" in str(e).lower():
+                    raise TimeoutError(f"Device {device_id} did not respond in time")
+                raise
 
             if "error" in result:
                 raise ValueError(result["error"].get("message", "Unknown error"))
 
             return result.get("payload", {})
-
-        except asyncio.TimeoutError:
-            raise TimeoutError(f"Device {device_id} did not respond in time")
         finally:
             self._pending_requests.pop(correlation_id, None)
 
@@ -302,13 +305,13 @@ class PubSubRouter:
             logger.warning(f"No pending request for correlation_id {correlation_id[:8]}")
             return
 
-        future, loop = self._pending_requests[correlation_id]
+        future = self._pending_requests[correlation_id]
         if future.done():
             logger.warning(f"Future already done for {correlation_id[:8]}")
             return
 
-        # Schedule the result to be set on the future's own loop
-        loop.call_soon_threadsafe(future.set_result, data)
+        # ThreadFuture.set_result is thread-safe
+        future.set_result(data)
         logger.info(f"Resolved Future for {correlation_id[:8]}")
 
     async def _handle_message(self, data: Dict[str, Any]):

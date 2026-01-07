@@ -76,7 +76,7 @@ class Device(BaseModel, table=True):
     status: str = Field(default=DeviceStatus.OFFLINE.value)
     last_seen_at: Optional[datetime] = Field(default=None)
     instance_id: Optional[str] = Field(default=None, index=True,
-        description="Cloud Run instance ID where device is connected")
+        description="Cloud Run revision ID where device is connected (e.g., 'homecast-00014-hxp')")
 
     # HomeKit info (cached from last connection)
     home_count: int = Field(default=0)

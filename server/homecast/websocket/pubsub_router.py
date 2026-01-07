@@ -25,8 +25,27 @@ from homecast.models.db.repositories import DeviceRepository, TopicSlotRepositor
 
 logger = logging.getLogger(__name__)
 
-# Cloud Run revision ID (for logging only)
-REVISION_ID = os.getenv("K_REVISION", f"local-{str(uuid.uuid4())[:8]}")
+# Unique container instance ID from Cloud Run metadata (resolved lazily)
+_instance_id: Optional[str] = None
+
+def _get_instance_id() -> str:
+    """Get unique instance ID from Cloud Run metadata server."""
+    global _instance_id
+    if _instance_id is not None:
+        return _instance_id
+
+    import urllib.request
+    revision = os.getenv("K_REVISION", "local")
+
+    req = urllib.request.Request(
+        "http://metadata.google.internal/computeMetadata/v1/instance/id",
+        headers={"Metadata-Flavor": "Google"}
+    )
+    with urllib.request.urlopen(req, timeout=2) as response:
+        metadata_id = response.read().decode("utf-8")
+        _instance_id = f"{revision}-{metadata_id[-8:]}"
+        logger.info(f"Instance ID: {_instance_id}")
+        return _instance_id
 
 
 class PubSubRouter:
@@ -56,8 +75,13 @@ class PubSubRouter:
 
     @property
     def instance_id(self) -> str:
-        """Returns the slot_name which is used as instance_id in Device table."""
-        return self._slot_name or REVISION_ID
+        """Returns the unique container instance ID."""
+        return _get_instance_id()
+
+    @property
+    def slot_name(self) -> Optional[str]:
+        """Returns the Pub/Sub topic slot claimed by this instance."""
+        return self._slot_name
 
     def _get_topic_name(self, slot_name: str) -> str:
         """Get topic name for a slot."""
@@ -83,10 +107,10 @@ class PubSubRouter:
 
             # Claim a topic slot from the database
             with get_session() as session:
-                slot = TopicSlotRepository.claim_slot(session, REVISION_ID)
+                slot = TopicSlotRepository.claim_slot(session, _get_instance_id())
                 self._slot_name = slot.slot_name
 
-            logger.info(f"Claimed topic slot: {self._slot_name} (revision: {REVISION_ID})")
+            logger.info(f"Claimed topic slot: {self._slot_name} (instance: {_get_instance_id()})")
 
             # Initialize Pub/Sub publisher
             self._publisher = pubsub_v1.PublisherClient()
@@ -128,7 +152,7 @@ class PubSubRouter:
             # Start heartbeat task to keep slot alive
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
-            logger.info(f"Pub/Sub router initialized, slot: {self._slot_name}")
+            logger.info(f"Pub/Sub router initialized (instance: {_get_instance_id()}, slot: {self._slot_name})")
 
         except Exception as e:
             logger.error(f"Failed to initialize Pub/Sub router: {e}", exc_info=True)
@@ -140,7 +164,7 @@ class PubSubRouter:
             while True:
                 await asyncio.sleep(60)  # Every minute
                 with get_session() as session:
-                    TopicSlotRepository.heartbeat(session, REVISION_ID)
+                    TopicSlotRepository.heartbeat(session, _get_instance_id())
                 logger.debug(f"Slot heartbeat: {self._slot_name}")
         except asyncio.CancelledError:
             pass
@@ -182,7 +206,7 @@ class PubSubRouter:
         # Release slot
         if self._slot_name:
             with get_session() as session:
-                TopicSlotRepository.release_slot(session, REVISION_ID)
+                TopicSlotRepository.release_slot(session, _get_instance_id())
             logger.info(f"Released slot: {self._slot_name}")
 
         logger.info("Pub/Sub router disconnected")
@@ -207,22 +231,29 @@ class PubSubRouter:
             raise ValueError("No local handler configured")
 
         # Look up device location from database
-        # Device.instance_id stores the slot_name
+        # Device.instance_id stores the Cloud Run revision ID
         with get_session() as session:
             device = DeviceRepository.find_by_device_id(session, device_id)
             if not device or device.status != "online":
                 raise ValueError(f"Device {device_id} not connected")
 
-            target_slot = device.instance_id
+            device_instance_id = device.instance_id
 
-        if not target_slot:
+        if not device_instance_id:
             raise ValueError(f"Device {device_id} has no instance_id")
 
-        # If device is on this slot, handle locally
-        if target_slot == self._slot_name:
+        # If device is on this instance, handle locally
+        if device_instance_id == _get_instance_id():
             if self._local_handler:
                 return await self._local_handler(device_id, action, payload, timeout)
             raise ValueError("No local handler configured")
+
+        # Look up which slot the target instance has claimed
+        with get_session() as session:
+            target_slot_record = TopicSlotRepository.get_slot_for_instance(session, device_instance_id)
+            if not target_slot_record:
+                raise ValueError(f"Instance {device_instance_id} has no active slot")
+            target_slot = target_slot_record.slot_name
 
         # Route to remote instance via Pub/Sub
         correlation_id = str(uuid.uuid4())
@@ -230,7 +261,7 @@ class PubSubRouter:
         future: asyncio.Future = self._loop.create_future()
         self._pending_requests[correlation_id] = future
 
-        logger.info(f"Routing request {correlation_id[:8]}: {self._slot_name} -> {target_slot} (device: {device_id}, action: {action})")
+        logger.info(f"Routing request {correlation_id[:8]}: {self._slot_name} -> {target_slot} (instance: {device_instance_id}, device: {device_id}, action: {action})")
 
         try:
             target_topic = self._get_topic_path(target_slot)

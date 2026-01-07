@@ -26,11 +26,9 @@ class WebSocketClient {
     // MARK: - Connection
 
     func connect() async throws {
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
+        // Token and device_id are passed via query params in the URL
         let session = URLSession(configuration: .default)
-        webSocketTask = session.webSocketTask(with: request)
+        webSocketTask = session.webSocketTask(with: url)
         webSocketTask?.resume()
 
         isConnected = true

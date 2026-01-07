@@ -93,6 +93,9 @@ class ConnectionManager:
         # Verify token
         auth = verify_token(token)
         if not auth:
+            logger.warning(f"Invalid token for device {device_id}")
+            # Must accept before closing with custom code
+            await websocket.accept()
             await websocket.close(code=4001, reason="Invalid token")
             return None
 
@@ -269,6 +272,9 @@ async def websocket_endpoint(websocket: WebSocket):
     Device ID via:
     - Query param: ?device_id=<id>
     """
+    # Log incoming connection for debugging
+    logger.info(f"WebSocket connection attempt - path: {websocket.url.path}, query: {websocket.query_params}")
+
     # Get auth token from header or query param
     auth_header = websocket.headers.get("authorization")
     token = extract_token_from_header(auth_header)
@@ -279,7 +285,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
     device_id = websocket.query_params.get("device_id")
 
+    # Must accept WebSocket before we can close it with a custom code
     if not token or not device_id:
+        logger.warning(f"WebSocket rejected: missing token={bool(token)}, device_id={bool(device_id)}")
+        # Accept first, then close with error code
+        await websocket.accept()
         await websocket.close(code=4000, reason="Missing token or device_id")
         return
 

@@ -24,6 +24,17 @@ class ConnectionManager: ObservableObject {
     private let serverURLKey = "serverURL"
     private let emailKey = "email"
     private let tokenKey = "authToken"
+    private let deviceIdKey = "deviceId"
+
+    // Device ID (persisted, generated once)
+    private var deviceId: String {
+        if let existing = UserDefaults.standard.string(forKey: deviceIdKey) {
+            return existing
+        }
+        let newId = UUID().uuidString
+        UserDefaults.standard.set(newId, forKey: deviceIdKey)
+        return newId
+    }
 
     // MARK: - Computed Properties
 
@@ -167,15 +178,26 @@ class ConnectionManager: ObservableObject {
             throw ConnectionError.notAuthenticated
         }
 
-        // Build WebSocket URL
-        var wsURL = serverURL
+        // Build WebSocket URL with device_id and token as query params
+        let wsBase = serverURL
             .replacingOccurrences(of: "https://", with: "wss://")
             .replacingOccurrences(of: "http://", with: "ws://")
-        wsURL += "/ws"
 
-        guard let url = URL(string: wsURL) else {
+        // Use URLComponents to properly encode query params
+        guard var components = URLComponents(string: wsBase + "/ws") else {
             throw ConnectionError.invalidURL
         }
+
+        components.queryItems = [
+            URLQueryItem(name: "device_id", value: deviceId),
+            URLQueryItem(name: "token", value: token)
+        ]
+
+        guard let url = components.url else {
+            throw ConnectionError.invalidURL
+        }
+
+        print("[ConnectionManager] Connecting to WebSocket: \(url.absoluteString)")
 
         // Wait for HomeKit to be ready
         await homeKitManager.waitForReady()

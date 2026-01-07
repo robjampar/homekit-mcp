@@ -310,6 +310,62 @@ class PubSubRouter:
         finally:
             self._pending_requests.pop(correlation_id, None)
 
+    async def broadcast_characteristic_update(
+        self,
+        user_id: uuid.UUID,
+        accessory_id: str,
+        characteristic_type: str,
+        value: Any
+    ):
+        """
+        Broadcast a characteristic update to all instances with web clients for this user.
+
+        Looks up which instances have web clients and sends directly to their topics.
+        """
+        if not self._enabled:
+            # Local-only mode - web_client_manager handles it directly
+            return
+
+        # Get all instance_ids that have web clients for this user
+        with get_session() as db:
+            instance_ids = SessionRepository.get_web_client_instance_ids(db, user_id)
+
+            if not instance_ids:
+                logger.debug(f"No web client instances for user {user_id}")
+                return
+
+            # Get slot names for each instance (excluding our own - we handle locally)
+            my_instance_id = _get_instance_id()
+            target_slots = []
+
+            for instance_id in instance_ids:
+                if instance_id == my_instance_id:
+                    continue  # Skip our own instance - handled locally
+                slot = TopicSlotRepository.get_slot_for_instance(db, instance_id)
+                if slot:
+                    target_slots.append(slot.slot_name)
+
+        if not target_slots:
+            logger.debug(f"No remote instances to broadcast to for user {user_id}")
+            return
+
+        # Send to each target instance's topic
+        message_data = json.dumps({
+            "type": "characteristic_update",
+            "user_id": str(user_id),
+            "accessory_id": accessory_id,
+            "characteristic_type": characteristic_type,
+            "value": value
+        }).encode("utf-8")
+
+        for slot_name in target_slots:
+            try:
+                target_topic = self._get_topic_path(slot_name)
+                self._publisher.publish(target_topic, message_data).result(timeout=5)
+                logger.debug(f"Broadcast characteristic update to slot {slot_name}")
+            except Exception as e:
+                logger.error(f"Failed to broadcast to slot {slot_name}: {e}")
+
     def _resolve_future(self, correlation_id: str, data: Dict[str, Any]):
         """Thread-safe resolution of a pending future."""
         if correlation_id not in self._pending_requests:
@@ -338,6 +394,9 @@ class PubSubRouter:
 
         elif msg_type == "request":
             await self._handle_remote_request(data)
+
+        elif msg_type == "characteristic_update":
+            await self._handle_characteristic_update(data)
 
         else:
             logger.warning(f"Unknown message type: {msg_type}")
@@ -381,6 +440,30 @@ class PubSubRouter:
             logger.info(f"Published response {correlation_id[:8]} to slot {source_slot}")
         except Exception as e:
             logger.error(f"Failed to publish response to slot {source_slot}: {e}")
+
+    async def _handle_characteristic_update(self, data: Dict[str, Any]):
+        """Handle a characteristic update broadcast from another instance."""
+        from homecast.websocket.web_clients import web_client_manager
+
+        user_id_str = data.get("user_id")
+        accessory_id = data.get("accessory_id")
+        characteristic_type = data.get("characteristic_type")
+        value = data.get("value")
+
+        if not all([user_id_str, accessory_id, characteristic_type]):
+            logger.warning("Invalid characteristic_update message - missing fields")
+            return
+
+        user_id = uuid.UUID(user_id_str)
+        logger.info(f"Received remote characteristic update for user {user_id}: {accessory_id[:8]}.../{characteristic_type}")
+
+        # Broadcast to local web clients for this user
+        await web_client_manager.broadcast_characteristic_update(
+            user_id=user_id,
+            accessory_id=accessory_id,
+            characteristic_type=characteristic_type,
+            value=value
+        )
 
 
 # Global router instance

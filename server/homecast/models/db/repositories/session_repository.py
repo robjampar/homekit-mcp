@@ -149,6 +149,23 @@ class SessionRepository(BaseRepository):
             statement = statement.where(Session.session_type == session_type.value)
         return list(db.exec(statement).all())
 
+    @classmethod
+    def get_web_client_instance_ids(
+        cls,
+        db: DBSession,
+        user_id: uuid.UUID
+    ) -> List[str]:
+        """Get distinct instance_ids for all active web sessions for a user."""
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_SESSION_TIMEOUT_SECONDS)
+        statement = (
+            select(Session.instance_id)
+            .where(Session.user_id == user_id)
+            .where(Session.session_type == SessionType.WEB.value)
+            .where(Session.last_heartbeat > cutoff)
+            .distinct()
+        )
+        return list(db.exec(statement).all())
+
     # --- Cleanup ---
 
     @classmethod

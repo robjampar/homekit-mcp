@@ -302,13 +302,23 @@ class ConnectionManager:
             # Get user_id for this device
             if device_id in self.connections:
                 user_id = self.connections[device_id].user_id
-                # Broadcast to all web clients for this user
+
+                # Broadcast to local web clients for this user
                 await web_client_manager.broadcast_characteristic_update(
                     user_id=user_id,
                     accessory_id=accessory_id,
                     characteristic_type=characteristic_type,
                     value=value
                 )
+
+                # Broadcast to web clients on other instances via Pub/Sub
+                await pubsub_router.broadcast_characteristic_update(
+                    user_id=user_id,
+                    accessory_id=accessory_id,
+                    characteristic_type=characteristic_type,
+                    value=value
+                )
+
                 logger.info(f"Broadcast characteristic update to user {user_id}: {accessory_id}/{characteristic_type}")
         else:
             logger.warning(f"Unknown event action from {device_id}: {action}")

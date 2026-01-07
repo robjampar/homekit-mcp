@@ -30,112 +30,9 @@ struct HomeCastApp: App {
 // MARK: - Root View
 
 struct RootView: View {
-    @EnvironmentObject var connectionManager: ConnectionManager
-
     var body: some View {
-        Group {
-            if connectionManager.isAuthenticated {
-                ContentView()
-            } else {
-                LoginView()
-            }
-        }
-        .frame(minWidth: 800, minHeight: 600)
-    }
-}
-
-// MARK: - Login View
-
-struct LoginView: View {
-    @EnvironmentObject var connectionManager: ConnectionManager
-
-    private let serverURL = "https://api.homecast.cloud"
-    @State private var email: String = "rob@parob.com"
-    @State private var password: String = "robrobrob"
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        ZStack {
-            Color(UIColor.systemBackground)
-                .ignoresSafeArea()
-
-            VStack(spacing: 24) {
-                Spacer()
-
-                // Logo
-                Image(systemName: "house.fill")
-                    .font(.system(size: 48, weight: .semibold))
-                    .foregroundStyle(.blue)
-
-                Text("HomeCast")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                Text("Sign in to connect your HomeKit devices")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                // Login Form
-                VStack(spacing: 16) {
-                    TextField("Email", text: $email)
-                        .textFieldStyle(.roundedBorder)
-
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(.roundedBorder)
-
-                    if let error = errorMessage {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    Button(action: login) {
-                        ZStack {
-                            Text("Sign In")
-                                .opacity(isLoading ? 0 : 1)
-                            if isLoading {
-                                ProgressView()
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canLogin || isLoading)
-                }
-                .frame(maxWidth: 320)
-
-                Spacer()
-            }
-            .padding()
-        }
-        .onAppear {
-            if !connectionManager.savedEmail.isEmpty {
-                email = connectionManager.savedEmail
-            }
-        }
-    }
-
-    private var canLogin: Bool {
-        !email.isEmpty && !password.isEmpty
-    }
-
-    private func login() {
-        isLoading = true
-        errorMessage = nil
-
-        Task {
-            do {
-                try await connectionManager.authenticate(
-                    serverURL: serverURL,
-                    email: email,
-                    password: password
-                )
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isLoading = false
-        }
+        ContentView()
+            .frame(minWidth: 800, minHeight: 600)
     }
 }
 
@@ -363,6 +260,21 @@ struct WebViewContainer: UIViewRepresentable {
             print("[WebView] Received message: \(action)")
 
             switch action {
+            case "login":
+                guard let token = body["token"] as? String else {
+                    print("[WebView] Login action missing token")
+                    return
+                }
+                print("[WebView] Received login token from web")
+                Task { @MainActor in
+                    do {
+                        try await connectionManager.authenticateWithToken(token)
+                        self.authToken = token
+                        self.hasInjectedToken = true
+                    } catch {
+                        print("[WebView] Failed to authenticate with token: \(error)")
+                    }
+                }
             case "logout":
                 Task { @MainActor in
                     connectionManager.signOut()

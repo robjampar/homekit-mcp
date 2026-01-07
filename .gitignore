@@ -47,3 +47,4 @@ pip-delete-this-directory.txt
 
 # Project specific
 *.log
+app/HomeCast.xcodeproj/project.xcworkspace/xcuserdata/r.parker.xcuserdatad/UserInterfaceState.xcuserstate

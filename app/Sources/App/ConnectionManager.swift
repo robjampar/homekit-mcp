@@ -185,6 +185,21 @@ class ConnectionManager: ObservableObject {
         try await connect()
     }
 
+    /// Authenticate using a token received from the web app
+    func authenticateWithToken(_ token: String) async throws {
+        print("[ConnectionManager] Authenticating with token from web")
+
+        // Use the default server URL
+        self.serverURL = "https://api.homecast.cloud"
+        self.authToken = token
+        self.isAuthenticated = true
+
+        saveCredentials()
+
+        // Connect WebSocket
+        try await connect()
+    }
+
     func restoreSession() async {
         loadCredentials()
 

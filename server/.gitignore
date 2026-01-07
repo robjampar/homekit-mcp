@@ -39,8 +39,8 @@ ENV/
 *.db
 *.sqlite3
 
-# UV
-uv.lock
+# UV cache (lock file should be committed)
+.uv/
 
 # Testing
 .pytest_cache/

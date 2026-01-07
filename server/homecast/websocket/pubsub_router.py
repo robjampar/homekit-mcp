@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Optional
 
 from homecast import config
 from homecast.models.db.database import get_session
-from homecast.models.db.repositories import DeviceRepository, TopicSlotRepository
+from homecast.models.db.repositories import SessionRepository, TopicSlotRepository
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class PubSubRouter:
         self._subscription_future = None
         self._pending_requests: Dict[str, ThreadFuture] = {}
         self._local_handler: Optional[Callable] = None
+        self._local_device_checker: Optional[Callable[[str], bool]] = None
         self._enabled = bool(config.GCP_PROJECT_ID)
         self._topic_path = None
         self._subscription_path = None
@@ -216,6 +217,10 @@ class PubSubRouter:
         """Set the handler for requests to local devices."""
         self._local_handler = handler
 
+    def set_local_device_checker(self, checker: Callable[[str], bool]):
+        """Set a function that checks if a device is connected to this instance."""
+        self._local_device_checker = checker
+
     async def send_request(
         self,
         device_id: str,
@@ -231,19 +236,25 @@ class PubSubRouter:
                 return await self._local_handler(device_id, action, payload, timeout)
             raise ValueError("No local handler configured")
 
-        # Look up device location from database
-        # Device.instance_id stores the Cloud Run revision ID
-        with get_session() as session:
-            device = DeviceRepository.find_by_device_id(session, device_id)
-            if not device or device.status != "online":
+        # Check local connections first (fast path - avoids DB lookup)
+        if self._local_device_checker and self._local_device_checker(device_id):
+            logger.debug(f"Device {device_id} is local, bypassing Pub/Sub")
+            if self._local_handler:
+                return await self._local_handler(device_id, action, payload, timeout)
+            raise ValueError("No local handler configured")
+
+        # Look up device session from database
+        with get_session() as db:
+            session_record = SessionRepository.get_device_session(db, device_id, include_stale=False)
+            if not session_record:
                 raise ValueError(f"Device {device_id} not connected")
 
-            device_instance_id = device.instance_id
+            device_instance_id = session_record.instance_id
 
         if not device_instance_id:
             raise ValueError(f"Device {device_id} has no instance_id")
 
-        # If device is on this instance, handle locally
+        # Double-check: if device is on this instance, handle locally
         if device_instance_id == _get_instance_id():
             if self._local_handler:
                 return await self._local_handler(device_id, action, payload, timeout)

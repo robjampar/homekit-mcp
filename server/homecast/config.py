@@ -33,7 +33,6 @@ DATABASE_URL: str = "sqlite:///./homecast.db"
 # Cross-instance routing (GCP Pub/Sub)
 GCP_PROJECT_ID: str = ""  # e.g., "my-project-id" - empty means local-only mode
 GCP_PUBSUB_TOPIC_PREFIX: str = "homecast-instance"  # Topics will be: homecast-instance-a7f2, etc.
-GCP_SKIP_LOCAL_LOOKUP: bool = False  # Set True to force all lookups through GCP (for testing)
 
 # JWT Configuration
 JWT_SECRET: str = "change-me-in-production"

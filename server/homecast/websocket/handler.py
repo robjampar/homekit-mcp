@@ -17,8 +17,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from homecast.auth import verify_token, extract_token_from_header
 from homecast.models.db.database import get_session
-from homecast.models.db.repositories import DeviceRepository
+from homecast.models.db.models import SessionType
+from homecast.models.db.repositories import SessionRepository
 from homecast.websocket.pubsub_router import router as pubsub_router
+from homecast.websocket.web_clients import web_client_manager
 from homecast import config
 
 logger = logging.getLogger(__name__)
@@ -124,30 +126,21 @@ class ConnectionManager:
             )
             self.connections[device_id] = device
 
-        # Auto-register device if not exists, then set online
-        # Use provided device_name or generate a default
+        # Create/update session in database
         name = device_name or f"HomeKit Device ({device_id[:8]})"
+        instance_id = pubsub_router.instance_id if pubsub_router.enabled else "local"
 
-        with get_session() as session:
-            existing = DeviceRepository.find_by_device_id(session, device_id)
-            if not existing:
-                # Auto-register the device
-                DeviceRepository.register_device(
-                    session=session,
-                    user_id=auth.user_id,
-                    device_id=device_id,
-                    name=name
-                )
-                logger.info(f"Auto-registered new device: {device_id} as '{name}'")
-            elif device_name and existing.name != device_name:
-                # Update device name if it changed
-                existing.name = device_name
-                session.commit()
-                logger.info(f"Updated device name: {device_id} to '{device_name}'")
+        with get_session() as db:
+            SessionRepository.create_session(
+                db,
+                user_id=auth.user_id,
+                instance_id=instance_id,
+                session_type=SessionType.DEVICE,
+                device_id=device_id,
+                name=name
+            )
 
-            DeviceRepository.set_online(session, device_id, instance_id=pubsub_router.instance_id)
-
-        logger.info(f"Device connected: {device_id} (user: {auth.user_id}, instance: {pubsub_router.instance_id})")
+        logger.info(f"Device connected: {device_id} (user: {auth.user_id}, instance: {instance_id})")
 
         return device
 
@@ -157,9 +150,9 @@ class ConnectionManager:
             if device_id in self.connections:
                 del self.connections[device_id]
 
-        # Update device status in database (clears instance_id)
-        with get_session() as session:
-            DeviceRepository.set_offline(session, device_id)
+        # Delete session from database
+        with get_session() as db:
+            SessionRepository.delete_by_device_id(db, device_id)
 
         logger.info(f"Device disconnected: {device_id}")
 
@@ -279,25 +272,46 @@ class ConnectionManager:
                 logger.warning(f"No pending request found for id={msg_id}, pending_ids={list(self.pending_requests.keys())}")
 
         elif msg_type == "status":
-            # Device status update (extension to protocol)
+            # Device status update (extension to protocol) - just log it
             payload = message.get("payload", {})
-            home_count = payload.get("homeCount", 0)
-            accessory_count = payload.get("accessoryCount", 0)
-
-            with get_session() as session:
-                DeviceRepository.set_online(
-                    session, device_id,
-                    home_count=home_count,
-                    accessory_count=accessory_count
-                )
+            logger.debug(f"Device {device_id} status: {payload}")
 
         elif msg_type == "pong":
             # Heartbeat response - update last seen time in database
-            with get_session() as session:
-                DeviceRepository.update_heartbeat(session, device_id)
+            with get_session() as db:
+                SessionRepository.update_heartbeat_by_device(db, device_id)
+
+        elif msg_type == "event":
+            # Event from Mac app (e.g., characteristic update)
+            await self._handle_event(device_id, action, message.get("payload", {}))
 
         else:
             logger.warning(f"Unknown message type from {device_id}: {msg_type}")
+
+    async def _handle_event(self, device_id: str, action: Optional[str], payload: Dict[str, Any]):
+        """Handle an event message from a Mac app (e.g., characteristic update)."""
+        if action == "characteristic.updated":
+            accessory_id = payload.get("accessoryId")
+            characteristic_type = payload.get("characteristicType")
+            value = payload.get("value")
+
+            if not all([accessory_id, characteristic_type]):
+                logger.warning(f"Invalid characteristic.updated event from {device_id}")
+                return
+
+            # Get user_id for this device
+            if device_id in self.connections:
+                user_id = self.connections[device_id].user_id
+                # Broadcast to all web clients for this user
+                await web_client_manager.broadcast_characteristic_update(
+                    user_id=user_id,
+                    accessory_id=accessory_id,
+                    characteristic_type=characteristic_type,
+                    value=value
+                )
+                logger.info(f"Broadcast characteristic update to user {user_id}: {accessory_id}/{characteristic_type}")
+        else:
+            logger.warning(f"Unknown event action from {device_id}: {action}")
 
     def is_connected(self, device_id: str) -> bool:
         """Check if a device is currently connected."""
@@ -394,14 +408,21 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 async def ping_clients():
-    """Periodically ping connected clients to keep connections alive (30s as per PROTOCOL.md)."""
+    """Periodically ping connected clients and confirm listener status (30s as per PROTOCOL.md)."""
     while True:
         await asyncio.sleep(30)
 
         disconnected = []
         for device_id, conn in list(connection_manager.connections.items()):
             try:
-                await conn.websocket.send_json({"type": "ping"})
+                # Check if this user has web clients listening (queries database)
+                has_listeners = web_client_manager.has_listeners(conn.user_id)
+
+                # Send ping with listener status so Mac app can reset timeout
+                await conn.websocket.send_json({
+                    "type": "ping",
+                    "payload": {"webClientsListening": has_listeners}
+                })
             except Exception:
                 disconnected.append(device_id)
 
@@ -414,7 +435,10 @@ async def init_pubsub_router():
     # Set the local handler for requests to devices on this instance
     pubsub_router.set_local_handler(connection_manager.send_request)
 
-    # Connect to Pub/Sub and Firestore
+    # Set the local device checker (fast path to avoid DB lookup)
+    pubsub_router.set_local_device_checker(connection_manager.is_connected)
+
+    # Connect to Pub/Sub
     await pubsub_router.connect()
 
     logger.info(f"Pub/Sub router initialized (enabled={pubsub_router.enabled})")
@@ -433,26 +457,17 @@ async def get_user_device_id(user_id: uuid.UUID) -> Optional[str]:
     Checks local connections first (fast), then falls back to database lookup
     which may return a device on another instance.
     """
-    # 1. Check local connections first (fast, always works)
-    #    Skip if GCP_SKIP_LOCAL_LOOKUP is set (for testing cross-instance routing)
-    if not config.GCP_SKIP_LOCAL_LOOKUP:
-        local_device = await connection_manager.get_user_device(user_id)
-        if local_device:
-            return local_device
+    # 1. Check local connections first (fast)
+    local_device = await connection_manager.get_user_device(user_id)
+    if local_device:
+        return local_device
 
-    # 2. Check database for online devices (may be on another instance)
-    with get_session() as session:
-        device = DeviceRepository.get_user_online_device(session, user_id)
-        if device:
-            return device.device_id
+    # 2. Check database for active device sessions (may be on another instance)
+    with get_session() as db:
+        session = SessionRepository.get_user_device_session(db, user_id)
+        if session and session.device_id:
+            return session.device_id
 
-    # 3. Fallback to local if we skipped it earlier
-    if config.GCP_SKIP_LOCAL_LOOKUP:
-        local_device = await connection_manager.get_user_device(user_id)
-        if local_device:
-            return local_device
-
-    # 4. No device found
     return None
 
 

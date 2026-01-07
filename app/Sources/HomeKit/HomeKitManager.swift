@@ -1,6 +1,11 @@
 import HomeKit
 import Foundation
 
+/// Delegate to receive characteristic value change notifications
+protocol HomeKitManagerDelegate: AnyObject {
+    func characteristicDidUpdate(accessoryId: String, characteristicType: String, value: Any)
+}
+
 @MainActor
 class HomeKitManager: NSObject, ObservableObject {
     private let homeManager: HMHomeManager
@@ -10,10 +15,87 @@ class HomeKitManager: NSObject, ObservableObject {
 
     private var readyContinuations: [CheckedContinuation<Void, Never>] = []
 
+    /// Delegate for characteristic change notifications
+    weak var delegate: HomeKitManagerDelegate?
+
+    /// Track which accessories we've set ourselves as delegate for
+    private var observedAccessories: Set<UUID> = []
+
     override init() {
         self.homeManager = HMHomeManager()
         super.init()
         self.homeManager.delegate = self
+    }
+
+    /// Whether we're currently observing characteristic changes
+    private(set) var isObserving: Bool = false
+
+    /// Timer to auto-stop observing if no confirmation received
+    private var observationTimeoutTask: Task<Void, Never>?
+
+    /// How long to wait for confirmation before stopping observation (seconds)
+    private let observationTimeout: TimeInterval = 90
+
+    /// Start observing characteristic changes for all accessories
+    func startObservingChanges() {
+        // Reset timeout even if already observing
+        resetObservationTimeout()
+
+        guard !isObserving else { return }
+        isObserving = true
+
+        for home in homes {
+            for accessory in home.accessories {
+                observeAccessory(accessory)
+            }
+        }
+        print("[HomeKit] Started observing \(observedAccessories.count) accessories")
+    }
+
+    /// Reset the observation timeout (call when server confirms listeners exist)
+    func resetObservationTimeout() {
+        observationTimeoutTask?.cancel()
+
+        guard isObserving else { return }
+
+        observationTimeoutTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(observationTimeout * 1_000_000_000))
+                // Timeout expired - no confirmation received
+                print("[HomeKit] Observation timeout - stopping (no listener confirmation for \(Int(observationTimeout))s)")
+                self.stopObservingChanges()
+            } catch {
+                // Task cancelled - this is expected when timeout is reset
+            }
+        }
+    }
+
+    /// Stop observing characteristic changes
+    func stopObservingChanges() {
+        observationTimeoutTask?.cancel()
+        observationTimeoutTask = nil
+
+        guard isObserving else { return }
+        isObserving = false
+
+        // Clear delegates from all observed accessories
+        for home in homes {
+            for accessory in home.accessories {
+                if observedAccessories.contains(accessory.uniqueIdentifier) {
+                    accessory.delegate = nil
+                }
+            }
+        }
+        observedAccessories.removeAll()
+        print("[HomeKit] Stopped observing accessories")
+    }
+
+    /// Observe a single accessory for changes
+    private func observeAccessory(_ accessory: HMAccessory) {
+        guard isObserving else { return }
+        guard !observedAccessories.contains(accessory.uniqueIdentifier) else { return }
+        accessory.delegate = self
+        observedAccessories.insert(accessory.uniqueIdentifier)
     }
 
     /// Wait for HomeKit to be ready (homes loaded)
@@ -200,6 +282,15 @@ extension HomeKitManager: HMHomeManagerDelegate {
             self.homes = manager.homes
             self.isReady = true
 
+            // If we were already observing, re-observe new accessories
+            if self.isObserving {
+                for home in manager.homes {
+                    for accessory in home.accessories {
+                        self.observeAccessory(accessory)
+                    }
+                }
+            }
+
             // Resume any waiting continuations
             for continuation in readyContinuations {
                 continuation.resume()
@@ -223,6 +314,24 @@ extension HomeKitManager: HMHomeManagerDelegate {
     nonisolated func homeManager(_ manager: HMHomeManager, didUpdate status: HMHomeManagerAuthorizationStatus) {
         Task { @MainActor in
             self.authorizationStatus = status
+        }
+    }
+}
+
+// MARK: - HMAccessoryDelegate
+
+extension HomeKitManager: HMAccessoryDelegate {
+    nonisolated func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueFor characteristic: HMCharacteristic) {
+        let accessoryId = accessory.uniqueIdentifier.uuidString
+        let charType = CharacteristicMapper.fromHomeKitType(characteristic.characteristicType)
+        let value = characteristic.value ?? NSNull()
+
+        Task { @MainActor in
+            self.delegate?.characteristicDidUpdate(
+                accessoryId: accessoryId,
+                characteristicType: charType,
+                value: value
+            )
         }
     }
 }

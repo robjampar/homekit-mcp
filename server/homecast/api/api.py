@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from graphql_api import field
 
 from homecast.models.db.database import get_session
-from homecast.models.db.repositories import UserRepository, DeviceRepository
+from homecast.models.db.models import SessionType
+from homecast.models.db.repositories import UserRepository, SessionRepository
 from homecast.auth import generate_token, AuthContext
 from homecast.middleware import get_auth_context
 
@@ -56,22 +57,12 @@ class UserInfo:
 
 @dataclass
 class DeviceInfo:
-    """Device information."""
+    """Device/session information."""
     id: str
-    device_id: str
-    name: str
-    status: str
+    device_id: Optional[str]
+    name: Optional[str]
+    session_type: str
     last_seen_at: Optional[str]
-    home_count: int
-    accessory_count: int
-
-
-@dataclass
-class DeviceRegistration:
-    """Result of device registration."""
-    success: bool
-    device_id: Optional[str] = None
-    error: Optional[str] = None
 
 
 # --- HomeKit Types ---
@@ -362,116 +353,72 @@ class API:
 
     @field
     async def my_devices(self) -> List[DeviceInfo]:
-        """Get all devices belonging to the current user. Requires authentication."""
+        """Get all active sessions for the current user. Requires authentication."""
         auth = require_auth()
 
-        with get_session() as session:
-            devices = DeviceRepository.find_by_user(session, auth.user_id)
+        with get_session() as db:
+            sessions = SessionRepository.get_user_sessions(db, auth.user_id)
 
             return [
                 DeviceInfo(
-                    id=str(device.id),
-                    device_id=device.device_id,
-                    name=device.name,
-                    status=device.status,
-                    last_seen_at=device.last_seen_at.isoformat() if device.last_seen_at else None,
-                    home_count=device.home_count,
-                    accessory_count=device.accessory_count
+                    id=str(s.id),
+                    device_id=s.device_id,
+                    name=s.name,
+                    session_type=s.session_type,
+                    last_seen_at=s.last_heartbeat.isoformat() if s.last_heartbeat else None
                 )
-                for device in devices
+                for s in sessions
             ]
 
     @field
     async def device(self, device_id: str) -> Optional[DeviceInfo]:
-        """Get a specific device by device_id. Requires authentication."""
+        """Get a specific device session by device_id. Requires authentication."""
         auth = require_auth()
 
-        with get_session() as session:
-            device = DeviceRepository.find_by_device_id(session, device_id)
+        with get_session() as db:
+            session = SessionRepository.get_device_session(db, device_id, include_stale=False)
 
-            if not device or device.user_id != auth.user_id:
+            if not session or session.user_id != auth.user_id:
                 return None
 
             return DeviceInfo(
-                id=str(device.id),
-                device_id=device.device_id,
-                name=device.name,
-                status=device.status,
-                last_seen_at=device.last_seen_at.isoformat() if device.last_seen_at else None,
-                home_count=device.home_count,
-                accessory_count=device.accessory_count
+                id=str(session.id),
+                device_id=session.device_id,
+                name=session.name,
+                session_type=session.session_type,
+                last_seen_at=session.last_heartbeat.isoformat() if session.last_heartbeat else None
             )
 
     @field(mutable=True)
-    async def register_device(
-        self,
-        device_id: str,
-        name: str
-    ) -> DeviceRegistration:
-        """
-        Register a new device or update an existing one. Requires authentication.
-
-        Args:
-            device_id: Unique device identifier from the Mac app
-            name: Display name for the device
-
-        Returns:
-            DeviceRegistration result
-        """
-        auth = require_auth()
-
-        try:
-            with get_session() as session:
-                device = DeviceRepository.register_device(
-                    session=session,
-                    user_id=auth.user_id,
-                    device_id=device_id,
-                    name=name
-                )
-
-                logger.info(f"Device registered: {device_id} for user {auth.user_id}")
-
-                return DeviceRegistration(
-                    success=True,
-                    device_id=device.device_id
-                )
-
-        except Exception as e:
-            logger.error(f"Device registration error: {e}", exc_info=True)
-            return DeviceRegistration(success=False, error="Failed to register device")
-
-    @field(mutable=True)
     async def remove_device(self, device_id: str) -> bool:
-        """Remove a device from the user's account. Requires authentication."""
+        """Remove a device session. Requires authentication."""
         auth = require_auth()
 
-        with get_session() as session:
-            device = DeviceRepository.find_by_device_id(session, device_id)
+        with get_session() as db:
+            session = SessionRepository.get_device_session(db, device_id)
 
-            if not device or device.user_id != auth.user_id:
+            if not session or session.user_id != auth.user_id:
                 return False
 
-            return DeviceRepository.delete(session, device)
+            return SessionRepository.delete_by_device_id(db, device_id)
 
     @field
     async def online_devices(self) -> List[DeviceInfo]:
-        """Get all online devices belonging to the current user. Requires authentication."""
+        """Get all online device sessions for the current user. Requires authentication."""
         auth = require_auth()
 
-        with get_session() as session:
-            devices = DeviceRepository.get_online_devices(session, auth.user_id)
+        with get_session() as db:
+            sessions = SessionRepository.get_user_sessions(db, auth.user_id, SessionType.DEVICE)
 
             return [
                 DeviceInfo(
-                    id=str(device.id),
-                    device_id=device.device_id,
-                    name=device.name,
-                    status=device.status,
-                    last_seen_at=device.last_seen_at.isoformat() if device.last_seen_at else None,
-                    home_count=device.home_count,
-                    accessory_count=device.accessory_count
+                    id=str(s.id),
+                    device_id=s.device_id,
+                    name=s.name,
+                    session_type=s.session_type,
+                    last_seen_at=s.last_heartbeat.isoformat() if s.last_heartbeat else None
                 )
-                for device in devices
+                for s in sessions
             ]
 
     # --- HomeKit Commands (via WebSocket to Mac app) ---

@@ -18,6 +18,7 @@ class WebSocketClient {
     var onConnect: (() -> Void)?
     var onDisconnect: ((Error?) -> Void)?
     var onAuthError: (() -> Void)?
+    var onWebClientsListeningChanged: ((Bool) -> Void)?
 
     init(url: URL, token: String, homeKitManager: HomeKitManager) {
         self.url = url
@@ -62,6 +63,30 @@ class WebSocketClient {
         }
     }
 
+    /// Send a characteristic update event to the server
+    func sendCharacteristicUpdate(accessoryId: String, characteristicType: String, value: Any) {
+        guard isConnected else { return }
+
+        let event = ProtocolMessage(
+            id: UUID().uuidString,
+            type: .event,
+            action: "characteristic.updated",
+            payload: [
+                "accessoryId": .string(accessoryId),
+                "characteristicType": .string(characteristicType),
+                "value": jsonValue(from: value)
+            ]
+        )
+
+        Task {
+            do {
+                try await send(event)
+            } catch {
+                print("[WebSocket] Failed to send characteristic update: \(error)")
+            }
+        }
+    }
+
     // MARK: - Message Handling
 
     private func startListening() {
@@ -97,9 +122,28 @@ class WebSocketClient {
             }
             // Respond to heartbeat
             try? await send(ProtocolMessage.pong())
-        case .response, .pong:
+
+            // Check if ping includes listener status (for timeout reset)
+            if let listening = message.payload?["webClientsListening"]?.boolValue {
+                onWebClientsListeningChanged?(listening)
+            }
+        case .config:
+            await handleConfig(message)
+        case .response, .pong, .event:
             // Not expected from server
             break
+        }
+    }
+
+    private func handleConfig(_ message: ProtocolMessage) async {
+        guard let action = message.action else { return }
+
+        if action == "listeners_changed" {
+            let listening = message.payload?["webClientsListening"]?.boolValue ?? false
+            await MainActor.run {
+                logManager.log("← Config: webClientsListening=\(listening)", category: .websocket, direction: .incoming)
+            }
+            onWebClientsListeningChanged?(listening)
         }
     }
 
@@ -416,6 +460,8 @@ struct ProtocolMessage: Codable {
         case response  // App → Server
         case ping      // Server → App (heartbeat)
         case pong      // App → Server (heartbeat response)
+        case event     // App → Server (push notification)
+        case config    // Server → App (configuration change)
     }
 
     // Convenience init for pong

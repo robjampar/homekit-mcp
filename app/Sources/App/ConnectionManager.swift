@@ -4,7 +4,7 @@ import Combine
 
 /// Manages authentication and WebSocket connection to the relay server
 @MainActor
-class ConnectionManager: ObservableObject {
+class ConnectionManager: NSObject, ObservableObject, HomeKitManagerDelegate {
     // MARK: - Published State
 
     @Published private(set) var isConnected: Bool = false
@@ -81,6 +81,9 @@ class ConnectionManager: ObservableObject {
 
     init(homeKitManager: HomeKitManager) {
         self.homeKitManager = homeKitManager
+        super.init()
+        // Set ourselves as the delegate to receive characteristic updates
+        self.homeKitManager.delegate = self
     }
 
     // MARK: - Authentication
@@ -283,6 +286,24 @@ class ConnectionManager: ObservableObject {
             }
         }
 
+        webSocketClient?.onWebClientsListeningChanged = { [weak self] listening in
+            Task { @MainActor in
+                guard let self = self else { return }
+                if listening {
+                    if !self.homeKitManager.isObserving {
+                        print("[ConnectionManager] Web clients listening - starting observation")
+                    }
+                    // startObservingChanges() also resets the timeout
+                    self.homeKitManager.startObservingChanges()
+                } else {
+                    if self.homeKitManager.isObserving {
+                        print("[ConnectionManager] No web clients - stopping observation")
+                        self.homeKitManager.stopObservingChanges()
+                    }
+                }
+            }
+        }
+
         try await webSocketClient?.connect()
     }
 
@@ -290,6 +311,8 @@ class ConnectionManager: ObservableObject {
         webSocketClient?.disconnect()
         webSocketClient = nil
         isConnected = false
+        // Stop observing when disconnected
+        homeKitManager.stopObservingChanges()
     }
 
     func signOut() {
@@ -430,4 +453,17 @@ struct UserInfo: Codable {
 
 struct ErrorResponse: Codable {
     let message: String
+}
+
+// MARK: - HomeKitManagerDelegate
+
+extension ConnectionManager {
+    func characteristicDidUpdate(accessoryId: String, characteristicType: String, value: Any) {
+        // Forward characteristic updates to the server via WebSocket
+        webSocketClient?.sendCharacteristicUpdate(
+            accessoryId: accessoryId,
+            characteristicType: characteristicType,
+            value: value
+        )
+    }
 }

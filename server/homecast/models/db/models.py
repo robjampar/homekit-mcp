@@ -50,39 +50,6 @@ class User(BaseModel, table=True):
     last_login_at: Optional[datetime] = Field(default=None)
 
 
-class DeviceStatus(str, Enum):
-    """Status of a connected device."""
-    ONLINE = "online"
-    OFFLINE = "offline"
-    CONNECTING = "connecting"
-
-
-class Device(BaseModel, table=True):
-    """
-    Connected HomeKit Mac apps.
-
-    Each device represents a Mac running the HomeCast app
-    that connects via WebSocket to relay HomeKit commands.
-    """
-    user_id: uuid.UUID = Field(
-        nullable=False, foreign_key="users.id", index=True)
-
-    # Device identification
-    name: str = Field(nullable=False)
-    device_id: str = Field(nullable=False, unique=True, index=True,
-        description="Unique device identifier from the Mac app")
-
-    # Connection status
-    status: str = Field(default=DeviceStatus.OFFLINE.value)
-    last_seen_at: Optional[datetime] = Field(default=None)
-    instance_id: Optional[str] = Field(default=None, index=True,
-        description="Cloud Run revision ID where device is connected (e.g., 'homecast-00014-hxp')")
-
-    # HomeKit info (cached from last connection)
-    home_count: int = Field(default=0)
-    accessory_count: int = Field(default=0)
-
-
 class TopicSlot(SQLModel, table=True):
     """
     Pub/Sub topic slots for cross-instance routing.
@@ -99,10 +66,40 @@ class TopicSlot(SQLModel, table=True):
     last_heartbeat: Optional[datetime] = Field(default=None)
 
 
+class SessionType(str, Enum):
+    """Type of active session."""
+    DEVICE = "device"  # Mac app connection
+    WEB = "web"        # Web browser connection
+
+
+class Session(BaseModel, table=True):
+    """
+    Active WebSocket connections (both Mac apps and web browsers).
+
+    Tracks all active connections across all server instances.
+    Used to determine if web clients are listening (for push updates)
+    and which instance a device is connected to.
+    """
+    __tablename__ = "sessions"
+
+    user_id: uuid.UUID = Field(nullable=False, foreign_key="users.id", index=True)
+    instance_id: str = Field(nullable=False, index=True,
+        description="Server instance handling this WebSocket connection")
+    session_type: str = Field(nullable=False, index=True,
+        description="Type of session: 'device' or 'web'")
+    device_id: Optional[str] = Field(default=None, unique=True, index=True,
+        description="Unique identifier (Mac device ID or browser session ID)")
+    name: Optional[str] = Field(default=None,
+        description="Display name (e.g., 'MacBook Pro' or 'Chrome')")
+    last_heartbeat: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Last activity - used to detect stale sessions")
+
+
 __all__ = [
     "BaseModel",
     "User",
-    "Device",
-    "DeviceStatus",
     "TopicSlot",
+    "Session",
+    "SessionType",
 ]

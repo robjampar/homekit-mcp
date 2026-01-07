@@ -32,6 +32,11 @@ from homecast.websocket.handler import (
     init_pubsub_router,
     shutdown_pubsub_router,
 )
+from homecast.websocket.web_clients import (
+    web_client_endpoint,
+    cleanup_stale_sessions,
+    cleanup_instance_sessions,
+)
 
 
 logging.basicConfig(
@@ -96,16 +101,25 @@ def create_app() -> Starlette:
 
         # Start background tasks
         ping_task = asyncio.create_task(ping_clients())
+        session_cleanup_task = asyncio.create_task(cleanup_stale_sessions())
 
         logger.info("HomeCast server ready")
         yield
 
         # Cleanup
         ping_task.cancel()
+        session_cleanup_task.cancel()
         try:
             await ping_task
         except asyncio.CancelledError:
             pass
+        try:
+            await session_cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+        # Clean up all sessions for this instance
+        await cleanup_instance_sessions()
 
         await shutdown_pubsub_router()
         logger.info("HomeCast server shutting down")
@@ -114,7 +128,8 @@ def create_app() -> Starlette:
     app = Starlette(
         routes=[
             Route('/health', endpoint=health, methods=['GET']),
-            WebSocketRoute('/ws', endpoint=websocket_endpoint),
+            WebSocketRoute('/ws', endpoint=websocket_endpoint),  # Mac app WebSocket
+            WebSocketRoute('/ws/web', endpoint=web_client_endpoint),  # Web UI WebSocket
             Mount('/', app=graphql_app, name='graphql'),
         ],
         lifespan=lifespan

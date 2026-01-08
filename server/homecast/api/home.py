@@ -394,6 +394,20 @@ class HomeAPI:
             payload={"homeId": full_home_id}
         )
 
+        # Get service groups (accessory groups)
+        groups_result = await route_request(
+            device_id=device_id,
+            action="serviceGroups.list",
+            payload={"homeId": full_home_id}
+        )
+
+        # Build accessory lookup by ID for group membership
+        accessory_by_id: Dict[str, Dict[str, Any]] = {}
+        for acc in accessories_result.get("accessories", []):
+            acc_id = acc.get("id")
+            if acc_id:
+                accessory_by_id[acc_id] = acc
+
         # Build room-based structure
         result: Dict[str, Any] = {}
         rooms_filter = set(r.lower() for r in rooms) if rooms else None
@@ -414,6 +428,22 @@ class HomeAPI:
 
             result[room_key][accessory_key] = _simplify_accessory(accessory)
 
+        # Add service groups in the room of their first member
+        for group in groups_result.get("serviceGroups", []):
+            group_name = _sanitize_name(group.get("name", "Unknown"))
+            member_ids = group.get("accessoryIds", [])
+            if member_ids:
+                first_member = accessory_by_id.get(member_ids[0])
+                if first_member:
+                    room_name = first_member.get("roomName", "Unknown")
+                    if rooms_filter and room_name.lower() not in rooms_filter:
+                        continue
+                    room_key = _sanitize_name(room_name)
+                    if room_key not in result:
+                        result[room_key] = {}
+                    group_state = _simplify_accessory(first_member)
+                    result[room_key][group_name] = group_state
+
         # Add scenes
         result["scenes"] = [s.get("name") for s in scenes_result.get("scenes", [])]
 
@@ -425,10 +455,10 @@ class HomeAPI:
         state: Dict[str, Dict[str, Dict[str, Any]]]
     ) -> Dict[str, Any]:
         """
-        Set the state of multiple accessories.
+        Set the state of multiple accessories or groups.
 
         Args:
-            state: Dictionary with room names as keys, containing accessories and values to set.
+            state: Dictionary with room names as keys, containing accessories/groups and values to set.
 
         Settable properties by device type:
             light: on (bool), brightness (0-100), hue (0-360), saturation (0-100), color_temp (140-500)
@@ -459,6 +489,20 @@ class HomeAPI:
             payload={"homeId": full_home_id}
         )
 
+        # Get service groups to map names to IDs
+        groups_result = await route_request(
+            device_id=device_id,
+            action="serviceGroups.list",
+            payload={"homeId": full_home_id}
+        )
+
+        # Build accessory lookup by ID
+        accessory_by_id: Dict[str, Dict] = {}
+        for acc in accessories_result.get("accessories", []):
+            acc_id = acc.get("id")
+            if acc_id:
+                accessory_by_id[acc_id] = acc
+
         # Build name -> accessory mapping
         name_to_accessory: Dict[str, Dict] = {}
         for accessory in accessories_result.get("accessories", []):
@@ -466,6 +510,19 @@ class HomeAPI:
             acc_name = _sanitize_name(accessory.get("name", "Unknown"))
             key = f"{room_name}/{acc_name}"
             name_to_accessory[key.lower()] = accessory
+
+        # Build name -> group mapping (keyed by room/name like accessories)
+        name_to_group: Dict[str, Dict] = {}
+        for group in groups_result.get("serviceGroups", []):
+            group_name = _sanitize_name(group.get("name", "Unknown"))
+            # Get room from first member
+            member_ids = group.get("accessoryIds", [])
+            if member_ids:
+                first_member = accessory_by_id.get(member_ids[0])
+                if first_member:
+                    room_name = _sanitize_name(first_member.get("roomName", "Unknown"))
+                    key = f"{room_name}/{group_name}"
+                    name_to_group[key.lower()] = group
 
         ok_count = 0
         failed = []
@@ -476,13 +533,14 @@ class HomeAPI:
 
             for acc_key, properties in accessories.items():
                 full_key = f"{room_key}/{acc_key}"
+
+                # Try as accessory first, then as group
                 accessory = name_to_accessory.get(full_key.lower())
+                group = name_to_group.get(full_key.lower())
 
-                if not accessory:
-                    failed.append(f"{full_key}: accessory not found")
+                if not accessory and not group:
+                    failed.append(f"{full_key}: not found")
                     continue
-
-                accessory_id = accessory.get("id")
 
                 for prop, value in properties.items():
                     if prop in ('type', '_settable'):
@@ -491,15 +549,28 @@ class HomeAPI:
                     char_type, char_value = _value_for_characteristic(prop, value)
 
                     try:
-                        await route_request(
-                            device_id=device_id,
-                            action="characteristic.set",
-                            payload={
-                                "accessoryId": accessory_id,
-                                "characteristicType": char_type,
-                                "value": char_value
-                            }
-                        )
+                        if group:
+                            # Set via group
+                            await route_request(
+                                device_id=device_id,
+                                action="serviceGroup.set",
+                                payload={
+                                    "groupId": group.get("id"),
+                                    "characteristicType": char_type,
+                                    "value": char_value
+                                }
+                            )
+                        else:
+                            # Set via accessory
+                            await route_request(
+                                device_id=device_id,
+                                action="characteristic.set",
+                                payload={
+                                    "accessoryId": accessory.get("id"),
+                                    "characteristicType": char_type,
+                                    "value": char_value
+                                }
+                            )
                         ok_count += 1
                     except Exception as e:
                         failed.append(f"{full_key}.{prop}: {str(e)}")

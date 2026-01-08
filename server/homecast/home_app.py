@@ -76,8 +76,7 @@ async def _fetch_home_state_summary(home_id_prefix: str) -> str:
     """
     Fetch home state and return a compact summary for injection into tool docs.
 
-    Returns a string like:
-    Living: Light1, Light2, Thermostat; Kitchen: Outlet, Light
+    Returns a JSON string with rooms, accessories, and groups.
     """
     try:
         with get_session() as db:
@@ -92,25 +91,53 @@ async def _fetch_home_state_summary(home_id_prefix: str) -> str:
             full_home_id = str(home.home_id)
 
         # Fetch accessories
-        result = await route_request(
+        accessories_result = await route_request(
             device_id=device_id,
             action="accessories.list",
             payload={"homeId": full_home_id, "includeValues": True}
         )
 
+        # Fetch service groups
+        groups_result = await route_request(
+            device_id=device_id,
+            action="serviceGroups.list",
+            payload={"homeId": full_home_id}
+        )
+
+        # Build accessory lookup by ID
+        accessory_by_id = {}
+        for acc in accessories_result.get("accessories", []):
+            acc_id = acc.get("id")
+            if acc_id:
+                accessory_by_id[acc_id] = acc
+
         # Build compact room summary
-        rooms = {}
-        for acc in result.get("accessories", []):
+        state = {}
+        for acc in accessories_result.get("accessories", []):
             room = _sanitize_name(acc.get("roomName", "Unknown"))
             name = _sanitize_name(acc.get("name", "Unknown"))
             simplified = _simplify_accessory(acc)
 
-            if room not in rooms:
-                rooms[room] = {}
-            rooms[room][name] = simplified
+            if room not in state:
+                state[room] = {}
+            state[room][name] = simplified
+
+        # Add service groups in the room of their first member
+        for group in groups_result.get("serviceGroups", []):
+            group_name = _sanitize_name(group.get("name", "Unknown"))
+            member_ids = group.get("accessoryIds", [])
+            if member_ids:
+                first_member = accessory_by_id.get(member_ids[0])
+                if first_member:
+                    room_name = first_member.get("roomName", "Unknown")
+                    room_key = _sanitize_name(room_name)
+                    if room_key not in state:
+                        state[room_key] = {}
+                    group_state = _simplify_accessory(first_member)
+                    state[room_key][group_name] = group_state
 
         # Format as compact JSON
-        return json.dumps(rooms, separators=(',', ':'))
+        return json.dumps(state, separators=(',', ':'))
 
     except Exception as e:
         logger.warning(f"Failed to fetch home state for injection: {e}")

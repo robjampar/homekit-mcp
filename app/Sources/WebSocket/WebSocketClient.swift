@@ -40,6 +40,7 @@ class WebSocketClient {
 
         isConnected = true
         reconnectAttempts = 0
+        consecutivePingFailures = 0
         onConnect?()
 
         await MainActor.run {
@@ -484,14 +485,28 @@ class WebSocketClient {
 
     // MARK: - Keep-alive
 
+    private var consecutivePingFailures = 0
+    private let maxPingFailures = 2
+
     private func startPingTask() {
         pingTask = Task {
             while isConnected {
                 try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
                 if isConnected {
-                    webSocketTask?.sendPing { error in
+                    webSocketTask?.sendPing { [weak self] error in
+                        guard let self = self else { return }
                         if let error = error {
-                            print("[WebSocket] Ping failed: \(error)")
+                            print("[WebSocket] ⚠️ Ping failed: \(error)")
+                            self.consecutivePingFailures += 1
+                            if self.consecutivePingFailures >= self.maxPingFailures {
+                                print("[WebSocket] ❌ Too many ping failures (\(self.consecutivePingFailures)), forcing reconnect")
+                                Task { @MainActor in
+                                    self.logManager.log("Connection stale - forcing reconnect", category: .websocket)
+                                }
+                                self.handleDisconnect(error: error)
+                            }
+                        } else {
+                            self.consecutivePingFailures = 0
                         }
                     }
                 }

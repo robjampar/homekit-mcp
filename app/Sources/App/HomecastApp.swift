@@ -17,7 +17,7 @@ extension Notification.Name {
 }
 
 @main
-struct HomeCastApp: App {
+struct HomecastApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

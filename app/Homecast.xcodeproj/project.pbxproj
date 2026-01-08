@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A1000001A /* HomeCastApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001F /* HomeCastApp.swift */; };
+		A1000001A /* HomecastApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001F /* HomecastApp.swift */; };
 		A1000002A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002F /* AppDelegate.swift */; };
 		A1000003A /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000003F /* ConnectionManager.swift */; };
 		A1000004A /* HomeKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004F /* HomeKitManager.swift */; };
@@ -49,7 +49,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A1000001F /* HomeCastApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCastApp.swift; sourceTree = "<group>"; };
+		A1000001F /* HomecastApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomecastApp.swift; sourceTree = "<group>"; };
 		A1000002F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1000003F /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		A1000004F /* HomeKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeKitManager.swift; sourceTree = "<group>"; };
@@ -57,7 +57,7 @@
 		A1000006F /* CharacteristicMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacteristicMapper.swift; sourceTree = "<group>"; };
 		A1000007F /* WebSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketClient.swift; sourceTree = "<group>"; };
 		A1000008F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1000009F /* HomeCast.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HomeCast.entitlements; sourceTree = "<group>"; };
+		A1000009F /* Homecast.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Homecast.entitlements; sourceTree = "<group>"; };
 		A1000010F /* HomeKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HomeKit.framework; path = System/Library/Frameworks/HomeKit.framework; sourceTree = SDKROOT; };
 		A1000011F /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		A1000012F /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
@@ -117,7 +117,7 @@
 			children = (
 				A1000024F /* Assets.xcassets */,
 				A1000008F /* Info.plist */,
-				A1000009F /* HomeCast.entitlements */,
+				A1000009F /* Homecast.entitlements */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -144,7 +144,7 @@
 		A0000006G /* App */ = {
 			isa = PBXGroup;
 			children = (
-				A1000001F /* HomeCastApp.swift */,
+				A1000001F /* HomecastApp.swift */,
 				A1000002F /* AppDelegate.swift */,
 				A1000003F /* ConnectionManager.swift */,
 				A1000022F /* SimpleHTTPServer.swift */,
@@ -270,7 +270,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1000001A /* HomeCastApp.swift in Sources */,
+				A1000001A /* HomecastApp.swift in Sources */,
 				A1000002A /* AppDelegate.swift in Sources */,
 				A1000003A /* ConnectionManager.swift in Sources */,
 				A1000004A /* HomeKitManager.swift in Sources */,

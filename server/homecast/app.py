@@ -37,7 +37,7 @@ from homecast.websocket.web_clients import (
     cleanup_stale_sessions,
     cleanup_instance_sessions,
 )
-from homecast.mcp.handler import mcp_endpoint
+from homecast.mcp.handler import mcp_endpoint, mcp_http_app
 
 
 logging.basicConfig(
@@ -63,67 +63,69 @@ def create_app() -> Starlette:
     # Lifespan handler for startup/shutdown
     @asynccontextmanager
     async def lifespan(app: Starlette):
-        logger.info("HomeCast server starting up...")
+        # Initialize MCP app lifespan (required for FastMCP task group)
+        async with mcp_http_app.lifespan(app):
+            logger.info("HomeCast server starting up...")
 
-        # Database setup
-        if getattr(config, "VALIDATE_OR_WIPE_DB_ON_STARTUP", False):
-            if not validate_schema():
-                logger.warning("Database schema validation failed - wiping and recreating")
-                wipe_and_recreate_db()
-            else:
-                from sqlalchemy import inspect
-                from homecast.models.db.database import get_engine
-                engine = get_engine()
-                inspector = inspect(engine)
-                if not inspector.get_table_names():
-                    logger.info("Database is empty - creating tables")
-                    create_db_and_tables()
-        elif getattr(config, "CREATE_DB_ON_STARTUP", False):
-            create_db_and_tables()
+            # Database setup
+            if getattr(config, "VALIDATE_OR_WIPE_DB_ON_STARTUP", False):
+                if not validate_schema():
+                    logger.warning("Database schema validation failed - wiping and recreating")
+                    wipe_and_recreate_db()
+                else:
+                    from sqlalchemy import inspect
+                    from homecast.models.db.database import get_engine
+                    engine = get_engine()
+                    inspector = inspect(engine)
+                    if not inspector.get_table_names():
+                        logger.info("Database is empty - creating tables")
+                        create_db_and_tables()
+            elif getattr(config, "CREATE_DB_ON_STARTUP", False):
+                create_db_and_tables()
 
-        # Seed default user if not exists
-        import uuid
-        from homecast.models.db.models import User
-        from homecast.models.db.repositories import UserRepository
-        with get_session() as session:
-            if not UserRepository.find_by_email(session, "rob@parob.com"):
-                user = User(
-                    id=uuid.UUID("c4e0cb24-e0ec-4831-906b-9a35d387aa2e"),
-                    email="rob@parob.com",
-                    password_hash=UserRepository._hash_password("robrobrob"),
-                    name="Rob"
-                )
-                session.add(user)
-                session.commit()
-                logger.info("Seeded default user: rob@parob.com")
+            # Seed default user if not exists
+            import uuid
+            from homecast.models.db.models import User
+            from homecast.models.db.repositories import UserRepository
+            with get_session() as session:
+                if not UserRepository.find_by_email(session, "rob@parob.com"):
+                    user = User(
+                        id=uuid.UUID("c4e0cb24-e0ec-4831-906b-9a35d387aa2e"),
+                        email="rob@parob.com",
+                        password_hash=UserRepository._hash_password("robrobrob"),
+                        name="Rob"
+                    )
+                    session.add(user)
+                    session.commit()
+                    logger.info("Seeded default user: rob@parob.com")
 
-        # Initialize Pub/Sub router for cross-instance WebSocket routing
-        await init_pubsub_router()
+            # Initialize Pub/Sub router for cross-instance WebSocket routing
+            await init_pubsub_router()
 
-        # Start background tasks
-        ping_task = asyncio.create_task(ping_clients())
-        session_cleanup_task = asyncio.create_task(cleanup_stale_sessions())
+            # Start background tasks
+            ping_task = asyncio.create_task(ping_clients())
+            session_cleanup_task = asyncio.create_task(cleanup_stale_sessions())
 
-        logger.info("HomeCast server ready")
-        yield
+            logger.info("HomeCast server ready")
+            yield
 
-        # Cleanup
-        ping_task.cancel()
-        session_cleanup_task.cancel()
-        try:
-            await ping_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await session_cleanup_task
-        except asyncio.CancelledError:
-            pass
+            # Cleanup
+            ping_task.cancel()
+            session_cleanup_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await session_cleanup_task
+            except asyncio.CancelledError:
+                pass
 
-        # Clean up all sessions for this instance
-        await cleanup_instance_sessions()
+            # Clean up all sessions for this instance
+            await cleanup_instance_sessions()
 
-        await shutdown_pubsub_router()
-        logger.info("HomeCast server shutting down")
+            await shutdown_pubsub_router()
+            logger.info("HomeCast server shutting down")
 
     # Create main app
     app = Starlette(

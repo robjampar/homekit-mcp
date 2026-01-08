@@ -73,6 +73,9 @@ _mcp_api = GraphQLAPI(root_type=MCPAPI)
 _mcp_graphql_app = GraphQLMCP.from_api(api=_mcp_api, auth=None)
 _mcp_http_app = _mcp_graphql_app.http_app(stateless_http=True)
 
+# Export for lifespan integration
+mcp_http_app = _mcp_http_app
+
 
 async def mcp_endpoint(request: Request) -> Response:
     """

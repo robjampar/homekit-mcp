@@ -3,7 +3,7 @@ import AppKit
 /// AppKit plugin that creates and manages the menu bar status item.
 /// This runs in the same process as the Mac Catalyst app but has access to AppKit APIs.
 @objc(MenuBarPlugin)
-public class MenuBarPlugin: NSObject, NSMenuDelegate {
+public class MenuBarPlugin: NSObject {
     private var statusItem: NSStatusItem?
     private weak var statusProvider: AnyObject?
     private var updateTimer: Timer?
@@ -65,25 +65,17 @@ public class MenuBarPlugin: NSObject, NSMenuDelegate {
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "house.fill", accessibilityDescription: "Homecast")
             button.image?.isTemplate = true
+            button.action = #selector(statusItemClicked)
+            button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-
-        // Build initial menu
-        rebuildAndAssignMenu()
     }
 
-    private func rebuildAndAssignMenu() {
+    @objc private func statusItemClicked() {
+        guard let button = statusItem?.button else { return }
+
         let menu = buildMenu()
-        menu.delegate = self
-        statusItem?.menu = menu
-    }
-
-    // MARK: - NSMenuDelegate
-
-    public func menuDidClose(_ menu: NSMenu) {
-        // Rebuild menu after close to ensure fresh state and avoid click-blocking
-        DispatchQueue.main.async { [weak self] in
-            self?.rebuildAndAssignMenu()
-        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
     }
 
     private func buildMenu() -> NSMenu {

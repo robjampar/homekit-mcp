@@ -1,5 +1,6 @@
 import HomeKit
 import Foundation
+import CoreFoundation
 
 // MARK: - Home Model
 
@@ -117,10 +118,10 @@ struct ServiceModel: Codable {
 
 // MARK: - Characteristic Model
 
-struct CharacteristicModel: Codable {
+struct CharacteristicModel {
     let id: String
     let characteristicType: String
-    let value: String?
+    let rawValue: Any?
     let isReadable: Bool
     let isWritable: Bool
 
@@ -129,7 +130,7 @@ struct CharacteristicModel: Codable {
         self.characteristicType = CharacteristicMapper.fromHomeKitType(characteristic.characteristicType)
         // Note: Accessing .value can trigger network reads on some devices
         // For large accessory lists, skip values for performance
-        self.value = includeValue ? characteristic.value.map { String(describing: $0) } : nil
+        self.rawValue = includeValue ? characteristic.value : nil
         self.isReadable = characteristic.properties.contains(HMCharacteristicPropertyReadable)
         self.isWritable = characteristic.properties.contains(HMCharacteristicPropertyWritable)
     }
@@ -141,10 +142,35 @@ struct CharacteristicModel: Codable {
             "isReadable": .bool(isReadable),
             "isWritable": .bool(isWritable)
         ]
-        if let value = value {
-            obj["value"] = .string(value)
+        if let value = rawValue {
+            obj["value"] = convertToJSONValue(value)
         }
         return .object(obj)
+    }
+
+    private func convertToJSONValue(_ value: Any) -> JSONValue {
+        switch value {
+        case let b as Bool:
+            return .bool(b)
+        case let i as Int:
+            return .int(i)
+        case let d as Double:
+            return .double(d)
+        case let s as String:
+            return .string(s)
+        case let n as NSNumber:
+            // NSNumber can be bool, int, or double - check type
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                return .bool(n.boolValue)
+            } else if n.doubleValue == Double(n.intValue) {
+                return .int(n.intValue)
+            } else {
+                return .double(n.doubleValue)
+            }
+        default:
+            // Fallback to string representation
+            return .string(String(describing: value))
+        }
     }
 }
 

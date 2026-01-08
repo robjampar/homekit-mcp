@@ -99,10 +99,31 @@ class Session(BaseModel, table=True):
         description="Last activity - used to detect stale sessions")
 
 
+class Home(SQLModel, table=True):
+    """
+    HomeKit homes tracked for MCP routing.
+
+    When a Mac app connects and reports its homes, we cache the mapping
+    so we can route MCP requests by home_id without requiring the JWT.
+    """
+    __tablename__ = "homes"
+
+    home_id: uuid.UUID = Field(primary_key=True,
+        description="Apple HomeKit home UUID")
+    name: str = Field(nullable=False,
+        description="Home name from HomeKit")
+    user_id: uuid.UUID = Field(nullable=False, foreign_key="users.id", index=True,
+        description="User who owns this home")
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Last time this home was reported by device")
+
+
 __all__ = [
     "BaseModel",
     "User",
     "TopicSlot",
     "Session",
     "SessionType",
+    "Home",
 ]

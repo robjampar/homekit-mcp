@@ -18,7 +18,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from homecast.auth import verify_token, extract_token_from_header
 from homecast.models.db.database import get_session
 from homecast.models.db.models import SessionType
-from homecast.models.db.repositories import SessionRepository
+from homecast.models.db.repositories import SessionRepository, HomeRepository
 from homecast.websocket.pubsub_router import router as pubsub_router
 from homecast.websocket.web_clients import web_client_manager
 from homecast import config
@@ -270,6 +270,10 @@ class ConnectionManager:
                 else:
                     result["payload"] = message.get("payload", {})
 
+                    # Cache homes for MCP routing when we receive a homes.list response
+                    if action == "homes.list":
+                        await self._cache_homes(device_id, result["payload"])
+
                 try:
                     pending.queue.put_nowait(result)
                     logger.info(f"Result queued for {msg_id}")
@@ -329,6 +333,31 @@ class ConnectionManager:
                 logger.info(f"Broadcast characteristic update to user {user_id}: {accessory_id}/{characteristic_type}")
         else:
             logger.warning(f"Unknown event action from {device_id}: {action}")
+
+    async def _cache_homes(self, device_id: str, payload: Dict[str, Any]):
+        """
+        Cache homes from a homes.list response for MCP routing.
+
+        When a device reports its homes, we store them in the database so
+        MCP requests can be routed to the correct user/device based on home_id.
+        """
+        homes = payload.get("homes", [])
+        if not homes:
+            return
+
+        # Get user_id for this device
+        if device_id not in self.connections:
+            logger.warning(f"Cannot cache homes: device {device_id} not in connections")
+            return
+
+        user_id = self.connections[device_id].user_id
+
+        try:
+            with get_session() as db:
+                HomeRepository.upsert_homes(db, user_id, homes)
+            logger.info(f"Cached {len(homes)} homes for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to cache homes for user {user_id}: {e}", exc_info=True)
 
     def is_connected(self, device_id: str) -> bool:
         """Check if a device is currently connected."""

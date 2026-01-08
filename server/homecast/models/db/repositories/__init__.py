@@ -2,10 +2,12 @@ from homecast.models.db.repositories.base_repository import BaseRepository
 from homecast.models.db.repositories.user_repository import UserRepository
 from homecast.models.db.repositories.topic_slot_repository import TopicSlotRepository
 from homecast.models.db.repositories.session_repository import SessionRepository
+from homecast.models.db.repositories.home_repository import HomeRepository
 
 __all__ = [
     "BaseRepository",
     "UserRepository",
     "TopicSlotRepository",
     "SessionRepository",
+    "HomeRepository",
 ]

@@ -88,7 +88,7 @@ struct ContentView: View {
                         }
 
                     // Logs panel
-                    LogsSheet(logManager: logManager, connectionManager: connectionManager, dismiss: {
+                    LogsSheet(logManager: logManager, connectionManager: connectionManager, homeKitManager: homeKitManager, dismiss: {
                         showingLogs = false
                     })
                     .shadow(radius: 20)
@@ -478,6 +478,7 @@ struct WebViewContainer: UIViewRepresentable {
 struct LogsSheet: View {
     @ObservedObject var logManager: LogManager
     @ObservedObject var connectionManager: ConnectionManager
+    @ObservedObject var homeKitManager: HomeKitManager
     var dismiss: () -> Void
     @State private var showingSignOutConfirm = false
 
@@ -579,6 +580,11 @@ struct LogsSheet: View {
                     .padding(.vertical, 4)
                 }
             }
+
+            Divider().opacity(0.5)
+
+            // Stats footer
+            footerView
         }
         .frame(width: 600, height: 400)
         .background(Color(uiColor: .systemBackground))
@@ -592,6 +598,53 @@ struct LogsSheet: View {
         } message: {
             Text("Are you sure you want to sign out?")
         }
+    }
+
+    private var footerView: some View {
+        let homes = homeKitManager.homes
+        let totalAccessories = homes.reduce(0) { $0 + $1.accessories.count }
+        let reachableAccessories = homes.reduce(0) { $0 + $1.accessories.filter { $0.isReachable }.count }
+        let totalRooms = homes.reduce(0) { $0 + $1.rooms.count }
+        let homeIds = homes.map { String($0.uniqueIdentifier.uuidString.prefix(8)) }.joined(separator: ", ")
+
+        return HStack(spacing: 4) {
+            Text("Homes:")
+                .foregroundStyle(.secondary)
+            Text("\(homes.count)")
+                .foregroundStyle(.primary)
+
+            Text("·")
+                .foregroundStyle(.quaternary)
+
+            Text("Accessories:")
+                .foregroundStyle(.secondary)
+            Text("\(totalAccessories)")
+                .foregroundStyle(.primary)
+            Text("(\(reachableAccessories) online)")
+                .foregroundStyle(.tertiary)
+
+            Text("·")
+                .foregroundStyle(.quaternary)
+
+            Text("Rooms:")
+                .foregroundStyle(.secondary)
+            Text("\(totalRooms)")
+                .foregroundStyle(.primary)
+
+            Text("·")
+                .foregroundStyle(.quaternary)
+
+            Text("IDs:")
+                .foregroundStyle(.secondary)
+            Text(homeIds.isEmpty ? "—" : homeIds)
+                .foregroundStyle(.tertiary)
+
+            Spacer()
+        }
+        .font(.caption)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
 }
 

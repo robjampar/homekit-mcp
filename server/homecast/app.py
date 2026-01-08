@@ -37,6 +37,7 @@ from homecast.websocket.web_clients import (
     cleanup_stale_sessions,
     cleanup_instance_sessions,
 )
+from homecast.mcp.handler import mcp_endpoint
 
 
 logging.basicConfig(
@@ -130,6 +131,7 @@ def create_app() -> Starlette:
             Route('/health', endpoint=health, methods=['GET']),
             WebSocketRoute('/ws', endpoint=websocket_endpoint),  # Mac app WebSocket
             WebSocketRoute('/ws/web', endpoint=web_client_endpoint),  # Web UI WebSocket
+            Route('/mcp/{home_id}', endpoint=mcp_endpoint, methods=['GET', 'POST']),  # MCP endpoint
             Mount('/', app=graphql_app, name='graphql'),
         ],
         lifespan=lifespan

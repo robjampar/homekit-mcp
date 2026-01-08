@@ -168,6 +168,14 @@ class ExecuteSceneResult:
 
 
 @dataclass
+class CharacteristicValue:
+    """Result of reading a characteristic value."""
+    accessory_id: str
+    characteristic_type: str
+    value: Optional[str] = None  # JSON-encoded value
+
+
+@dataclass
 class UserSettings:
     """User settings - stored as opaque JSON blob."""
     data: str = "{}"  # JSON string, frontend controls the schema
@@ -609,6 +617,49 @@ class API:
             return None
         except Exception as e:
             logger.error(f"accessory.get error: {e}")
+            raise
+
+    @field
+    async def characteristic_get(
+        self,
+        accessory_id: str,
+        characteristic_type: str
+    ) -> CharacteristicValue:
+        """
+        Read a characteristic value.
+
+        Args:
+            accessory_id: The accessory UUID
+            characteristic_type: Type like "power-state", "brightness"
+
+        Returns:
+            CharacteristicValue with the current value (JSON-encoded)
+        """
+        from homecast.websocket.handler import route_request, get_user_device_id
+
+        auth = require_auth()
+        device_id = await get_user_device_id(auth.user_id)
+
+        if not device_id:
+            raise ValueError("No connected device")
+
+        try:
+            result = await route_request(
+                device_id=device_id,
+                action="characteristic.get",
+                payload={
+                    "accessoryId": accessory_id,
+                    "characteristicType": characteristic_type
+                }
+            )
+            value = result.get("value")
+            return CharacteristicValue(
+                accessory_id=accessory_id,
+                characteristic_type=characteristic_type,
+                value=json.dumps(value) if value is not None else None
+            )
+        except Exception as e:
+            logger.error(f"characteristic.get error: {e}")
             raise
 
     @field

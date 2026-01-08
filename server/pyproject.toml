@@ -11,6 +11,7 @@ authors = [
 dependencies = [
     "graphql-api",
     "graphql-http>=2.1.2",
+    "graphql-mcp",
     "starlette",
     "uvicorn",
     "sqlmodel",

@@ -10,6 +10,7 @@ import logging
 import re
 from typing import Optional
 
+from starlette.routing import get_route_path
 from starlette.types import ASGIApp, Receive, Scope, Send
 from graphql_mcp.server import GraphQLMCP
 from graphql_api import GraphQLAPI

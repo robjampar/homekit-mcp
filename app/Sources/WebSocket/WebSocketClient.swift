@@ -256,18 +256,21 @@ class WebSocketClient {
             ]
 
         case "serviceGroup.set":
-            guard let homeId = payload?["homeId"]?.stringValue,
-                  let groupId = payload?["groupId"]?.stringValue,
+            guard let groupId = payload?["groupId"]?.stringValue,
                   let characteristicType = payload?["characteristicType"]?.stringValue,
                   let value = payload?["value"] else {
-                throw HomeKitError.invalidRequest("Missing homeId, groupId, characteristicType, or value")
+                throw HomeKitError.invalidRequest("Missing groupId, characteristicType, or value")
             }
+            let homeId = payload?["homeId"]?.stringValue
+            print("[HomeKit] 🎯 serviceGroup.set: group=\(groupId.prefix(8))..., type=\(characteristicType), value=\(value)")
+
             let successCount = try await homeKitManager.setServiceGroupCharacteristic(
                 homeId: homeId,
                 groupId: groupId,
                 characteristicType: characteristicType,
                 value: value.toAny()
             )
+            print("[HomeKit] ✅ serviceGroup.set result: affectedCount=\(successCount)")
 
             // Send update event for each affected accessory
             // (The individual accessory delegates should fire, but we send a group notification too)
@@ -335,11 +338,14 @@ class WebSocketClient {
                   let value = payload?["value"] else {
                 throw HomeKitError.invalidRequest("Missing accessoryId, characteristicType, or value")
             }
+            print("[HomeKit] 🎯 characteristic.set: accessory=\(accessoryId.prefix(8))..., type=\(characteristicType), value=\(value)")
+
             let result = try await homeKitManager.setCharacteristic(
                 accessoryId: accessoryId,
                 characteristicType: characteristicType,
                 value: value.toAny()
             )
+            print("[HomeKit] ✅ characteristic.set result: success=\(result.success), newValue=\(result.newValue ?? "nil")")
 
             // Send update event to server so other web clients get notified
             // (HMAccessoryDelegate doesn't fire for changes made by our own app)

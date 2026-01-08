@@ -227,13 +227,15 @@ class ConnectionManager:
         try:
             # Send request to device (PROTOCOL.md format)
             conn = self.connections[device_id]
-            t3 = time.time()
-            await conn.websocket.send_json({
+            ws_message = {
                 "id": request_id,
                 "type": "request",
                 "action": action,
                 "payload": payload
-            })
+            }
+            logger.info(f"[{request_id[:8]}] WS SEND to {device_id}: {ws_message}")
+            t3 = time.time()
+            await conn.websocket.send_json(ws_message)
             t4 = time.time()
             logger.info(f"[{request_id[:8]}] WebSocket send took {(t4-t3)*1000:.0f}ms")
 
@@ -282,7 +284,14 @@ class ConnectionManager:
             # Response to a request we sent
             if msg_id and msg_id in self.pending_requests:
                 pending = self.pending_requests[msg_id]
-                logger.info(f"Found pending request {msg_id}, putting result in queue")
+
+                # Log full response (truncate payload if huge)
+                payload_preview = message.get("payload", {})
+                payload_str = str(payload_preview)
+                if len(payload_str) > 500:
+                    payload_str = payload_str[:500] + "...(truncated)"
+                error_info = message.get("error")
+                logger.info(f"[{msg_id[:8]}] WS RECV: action={action}, error={error_info}, payload={payload_str}")
 
                 # Put result in queue (includes error or payload)
                 result = {}
@@ -550,8 +559,15 @@ async def route_request(
     This is the main entry point for sending requests to devices - it handles
     both local and remote devices transparently.
     """
+    logger.info(f"route_request: device={device_id}, action={action}, payload={payload}")
     if pubsub_router.enabled:
-        return await pubsub_router.send_request(device_id, action, payload, timeout)
+        logger.info(f"route_request: using Pub/Sub router")
+        result = await pubsub_router.send_request(device_id, action, payload, timeout)
+        logger.info(f"route_request: response={result}")
+        return result
     else:
         # Local-only mode
-        return await connection_manager.send_request(device_id, action, payload, timeout)
+        logger.info(f"route_request: using direct local connection")
+        result = await connection_manager.send_request(device_id, action, payload, timeout)
+        logger.info(f"route_request: response={result}")
+        return result

@@ -6,7 +6,11 @@ Main entry point for the Cloud Run deployment.
 
 import asyncio
 import logging
+import warnings
 from contextlib import asynccontextmanager
+
+# Suppress websockets deprecation warning (legacy server API)
+warnings.filterwarnings("ignore", message="remove second argument of ws_handler")
 
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount, WebSocketRoute

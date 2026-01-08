@@ -158,16 +158,40 @@ class HomeKitManager: NSObject, ObservableObject {
     }
 
     /// Set a characteristic on all services in a group
-    func setServiceGroupCharacteristic(homeId: String, groupId: String, characteristicType: String, value: Any) async throws -> Int {
-        guard let homeUUID = UUID(uuidString: homeId),
-              let home = homes.first(where: { $0.uniqueIdentifier == homeUUID }) else {
-            throw HomeKitError.homeNotFound(homeId)
+    func setServiceGroupCharacteristic(homeId: String?, groupId: String, characteristicType: String, value: Any) async throws -> Int {
+        print("[HomeKit] 📝 setServiceGroupCharacteristic: group=\(groupId.prefix(8))..., type=\(characteristicType), value=\(value)")
+
+        // Find group across all homes if homeId not specified
+        var targetGroup: HMServiceGroup?
+        var targetHome: HMHome?
+
+        if let homeId = homeId, let homeUUID = UUID(uuidString: homeId) {
+            guard let home = homes.first(where: { $0.uniqueIdentifier == homeUUID }) else {
+                throw HomeKitError.homeNotFound(homeId)
+            }
+            targetHome = home
+            if let groupUUID = UUID(uuidString: groupId) {
+                targetGroup = home.serviceGroups.first(where: { $0.uniqueIdentifier == groupUUID })
+            }
+        } else {
+            // Search all homes for the group
+            if let groupUUID = UUID(uuidString: groupId) {
+                for home in homes {
+                    if let group = home.serviceGroups.first(where: { $0.uniqueIdentifier == groupUUID }) {
+                        targetGroup = group
+                        targetHome = home
+                        break
+                    }
+                }
+            }
         }
 
-        guard let groupUUID = UUID(uuidString: groupId),
-              let group = home.serviceGroups.first(where: { $0.uniqueIdentifier == groupUUID }) else {
+        guard let group = targetGroup else {
+            print("[HomeKit] ❌ Service group not found: \(groupId)")
             throw HomeKitError.invalidRequest("Service group not found: \(groupId)")
         }
+
+        print("[HomeKit] 📝 Found group '\(group.name)' with \(group.services.count) services")
 
         var successCount = 0
 
@@ -178,23 +202,31 @@ class HomeKitManager: NSObject, ObservableObject {
                 if characteristic.properties.contains(HMCharacteristicPropertyWritable) {
                     do {
                         let convertedValue = try CharacteristicMapper.convertValue(value, for: characteristic)
+                        print("[HomeKit] 📝 Writing to service '\(service.name)': \(value) -> \(convertedValue)")
                         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                             characteristic.writeValue(convertedValue) { error in
                                 if let error = error {
+                                    print("[HomeKit] ❌ Write failed for '\(service.name)': \(error.localizedDescription)")
                                     continuation.resume(throwing: error)
                                 } else {
+                                    print("[HomeKit] ✅ Write successful for '\(service.name)'")
                                     continuation.resume()
                                 }
                             }
                         }
                         successCount += 1
                     } catch {
-                        print("[HomeKit] Failed to set \(characteristicType) on service \(service.name): \(error)")
+                        print("[HomeKit] ❌ Failed to set \(characteristicType) on service \(service.name): \(error)")
                     }
+                } else {
+                    print("[HomeKit] ⚠️ Characteristic \(characteristicType) not writable on service '\(service.name)'")
                 }
+            } else {
+                print("[HomeKit] ⚠️ Characteristic \(characteristicType) not found on service '\(service.name)'")
             }
         }
 
+        print("[HomeKit] 📝 setServiceGroupCharacteristic complete: \(successCount)/\(group.services.count) succeeded")
         return successCount
     }
 
@@ -299,23 +331,31 @@ class HomeKitManager: NSObject, ObservableObject {
     }
 
     func setCharacteristic(accessoryId: String, characteristicType: String, value: Any) async throws -> ControlResult {
-        let (_, characteristic) = try await MainActor.run {
+        print("[HomeKit] 📝 setCharacteristic: finding characteristic \(characteristicType) on \(accessoryId.prefix(8))...")
+
+        let (accessory, characteristic) = try await MainActor.run {
             try findCharacteristic(accessoryId: accessoryId, type: characteristicType)
         }
 
+        print("[HomeKit] 📝 Found accessory: \(accessory.name), characteristic: \(characteristic.characteristicType)")
+
         // Validate writable
         guard characteristic.properties.contains(HMCharacteristicPropertyWritable) else {
+            print("[HomeKit] ❌ Characteristic not writable!")
             throw HomeKitError.characteristicNotWritable(characteristicType)
         }
 
         // Convert value to appropriate type
         let convertedValue = try CharacteristicMapper.convertValue(value, for: characteristic)
+        print("[HomeKit] 📝 Writing value: \(value) -> converted: \(convertedValue) (type: \(type(of: convertedValue)))")
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             characteristic.writeValue(convertedValue) { error in
                 if let error = error {
+                    print("[HomeKit] ❌ Write failed: \(error.localizedDescription)")
                     continuation.resume(throwing: HomeKitError.writeFailed(error))
                 } else {
+                    print("[HomeKit] ✅ Write successful!")
                     continuation.resume()
                 }
             }

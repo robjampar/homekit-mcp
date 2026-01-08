@@ -527,6 +527,8 @@ class HomeAPI:
         ok_count = 0
         failed = []
 
+        logger.info(f"set_state called with: {state}")
+
         for room_key, accessories in state.items():
             if room_key == "scenes":
                 continue
@@ -538,7 +540,10 @@ class HomeAPI:
                 accessory = name_to_accessory.get(full_key.lower())
                 group = name_to_group.get(full_key.lower())
 
+                logger.info(f"  {full_key}: accessory={accessory.get('id') if accessory else None}, group={group.get('id') if group else None}")
+
                 if not accessory and not group:
+                    logger.warning(f"  {full_key}: NOT FOUND in accessory or group mappings")
                     failed.append(f"{full_key}: not found")
                     continue
 
@@ -547,34 +552,43 @@ class HomeAPI:
                         continue
 
                     char_type, char_value = _value_for_characteristic(prop, value)
+                    logger.info(f"    Setting {prop}={value} -> {char_type}={char_value}")
 
                     try:
                         if group:
                             # Set via group
-                            await route_request(
+                            payload = {
+                                "groupId": group.get("id"),
+                                "characteristicType": char_type,
+                                "value": char_value
+                            }
+                            logger.info(f"    -> serviceGroup.set: {payload}")
+                            result = await route_request(
                                 device_id=device_id,
                                 action="serviceGroup.set",
-                                payload={
-                                    "groupId": group.get("id"),
-                                    "characteristicType": char_type,
-                                    "value": char_value
-                                }
+                                payload=payload
                             )
+                            logger.info(f"    -> OK: {result}")
                         else:
                             # Set via accessory
-                            await route_request(
+                            payload = {
+                                "accessoryId": accessory.get("id"),
+                                "characteristicType": char_type,
+                                "value": char_value
+                            }
+                            logger.info(f"    -> characteristic.set: {payload}")
+                            result = await route_request(
                                 device_id=device_id,
                                 action="characteristic.set",
-                                payload={
-                                    "accessoryId": accessory.get("id"),
-                                    "characteristicType": char_type,
-                                    "value": char_value
-                                }
+                                payload=payload
                             )
+                            logger.info(f"    -> OK: {result}")
                         ok_count += 1
                     except Exception as e:
+                        logger.error(f"    -> FAILED: {e}")
                         failed.append(f"{full_key}.{prop}: {str(e)}")
 
+        logger.info(f"set_state complete: ok={ok_count}, failed={failed}")
         return {"ok": ok_count, "failed": failed}
 
     @field(mutable=True)

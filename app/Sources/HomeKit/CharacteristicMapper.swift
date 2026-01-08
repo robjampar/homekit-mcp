@@ -86,16 +86,38 @@ enum CharacteristicMapper {
     // MARK: - Service Type Mapping
 
     private static let serviceMap: [String: String] = [
+        // Lighting
         "lightbulb": HMServiceTypeLightbulb,
+
+        // Switches & Outlets
         "switch": HMServiceTypeSwitch,
         "outlet": HMServiceTypeOutlet,
+        "stateless_programmable_switch": HMServiceTypeStatelessProgrammableSwitch,
+
+        // Climate Control
         "thermostat": HMServiceTypeThermostat,
+        "heater_cooler": HMServiceTypeHeaterCooler,
+        "fan": HMServiceTypeFan,
+        "fan_v2": HMServiceTypeFanV2,
+        "air_purifier": HMServiceTypeAirPurifier,
+        "humidifier_dehumidifier": HMServiceTypeHumidifierDehumidifier,
+        "filter_maintenance": HMServiceTypeFilterMaintenance,
+
+        // Doors, Windows & Locks
         "lock": HMServiceTypeLockMechanism,
         "door": HMServiceTypeDoor,
+        "doorbell": HMServiceTypeDoorbell,
         "window": HMServiceTypeWindow,
         "window_covering": HMServiceTypeWindowCovering,
-        "fan": HMServiceTypeFan,
         "garage_door": HMServiceTypeGarageDoorOpener,
+        "slats": HMServiceTypeSlats,
+
+        // Water
+        "faucet": HMServiceTypeFaucet,
+        "valve": HMServiceTypeValve,
+        "irrigation_system": HMServiceTypeIrrigationSystem,
+
+        // Sensors
         "motion_sensor": HMServiceTypeMotionSensor,
         "occupancy_sensor": HMServiceTypeOccupancySensor,
         "contact_sensor": HMServiceTypeContactSensor,
@@ -105,10 +127,24 @@ enum CharacteristicMapper {
         "smoke_sensor": HMServiceTypeSmokeSensor,
         "carbon_monoxide_sensor": HMServiceTypeCarbonMonoxideSensor,
         "carbon_dioxide_sensor": HMServiceTypeCarbonDioxideSensor,
+        "air_quality_sensor": HMServiceTypeAirQualitySensor,
+        "leak_sensor": HMServiceTypeLeakSensor,
+
+        // Power & Battery
         "battery": HMServiceTypeBattery,
+
+        // Audio & Video
         "speaker": HMServiceTypeSpeaker,
+        "microphone": HMServiceTypeMicrophone,
+        "camera_rtp_stream_management": HMServiceTypeCameraRTPStreamManagement,
+        "camera_control": HMServiceTypeCameraControl,
+
+        // Security
         "security_system": HMServiceTypeSecuritySystem,
+
+        // Accessory Info
         "accessory_information": HMServiceTypeAccessoryInformation,
+        "label": HMServiceTypeLabel,
     ]
 
     // MARK: - Conversion Methods

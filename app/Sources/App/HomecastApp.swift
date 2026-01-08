@@ -235,17 +235,21 @@ struct WebViewContainer: UIViewRepresentable {
         // Add message handler for native bridge
         config.userContentController.add(context.coordinator, name: "homecast")
 
-        // If we have a token at creation time, inject it before page loads
-        // (This handles the case where restoreSession completed before view creation)
+        // Sync localStorage with Mac app's auth state at document start
+        // - If we have a token: inject it
+        // - If no token: clear any stale token (restoreSession will inject later if needed)
+        let tokenScript: String
         if let token = authToken {
-            let script = WKUserScript(
-                source: "localStorage.setItem('homekit-token', '\(token)'); console.log('[Homecast] Token pre-injected');",
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-            config.userContentController.addUserScript(script)
+            tokenScript = "localStorage.setItem('homekit-token', '\(token)'); console.log('[Homecast] Token pre-injected');"
+        } else {
+            tokenScript = "localStorage.removeItem('homekit-token'); console.log('[Homecast] Cleared localStorage (no token)');"
         }
-        // Note: Don't clear localStorage if no token - restoreSession might not have run yet
+        let script = WKUserScript(
+            source: tokenScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(script)
 
         // Use a reasonable initial frame to avoid CoreGraphics NaN errors
         let webView = FocusableWebView(frame: CGRect(x: 0, y: 0, width: 100, height: 100), configuration: config)
@@ -284,15 +288,18 @@ struct WebViewContainer: UIViewRepresentable {
                     print("[WebView] Token cleared (WebView-initiated logout)")
                     context.coordinator.webViewInitiatedLogout = false
                 } else {
-                    // Mac app menu sign out - clear localStorage, notify frontend, and navigate
+                    // Mac app sign out (from menu, LogsSheet, etc.) - clear localStorage and reload to login
                     let js = """
                     localStorage.removeItem('homekit-token');
                     console.log('[Homecast] Signed out from Mac app');
-                    window.dispatchEvent(new StorageEvent('storage', { key: 'homekit-token', newValue: null }));
-                    window.location.href = '/login';
                     """
-                    webView.evaluateJavaScript(js, completionHandler: nil)
-                    print("[WebView] Navigating to login (Mac-initiated sign out)")
+                    webView.evaluateJavaScript(js) { [weak webView] _, _ in
+                        // Force load login page after clearing token
+                        if let url = URL(string: "https://homecast.cloud/login") {
+                            webView?.load(URLRequest(url: url))
+                        }
+                    }
+                    print("[WebView] Loading login page (Mac-initiated sign out)")
                 }
             }
         }

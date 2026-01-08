@@ -65,17 +65,14 @@ public class MenuBarPlugin: NSObject {
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "house.fill", accessibilityDescription: "Homecast")
             button.image?.isTemplate = true
-            button.action = #selector(statusItemClicked)
-            button.target = self
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+
+        // Attach menu directly so it inherits proper system appearance
+        rebuildMenu()
     }
 
-    @objc private func statusItemClicked() {
-        guard let button = statusItem?.button else { return }
-
-        let menu = buildMenu()
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
+    private func rebuildMenu() {
+        statusItem?.menu = buildMenu()
     }
 
     private func buildMenu() -> NSMenu {
@@ -205,13 +202,9 @@ public class MenuBarPlugin: NSObject {
             self.cachedIsAuthenticated = isAuthenticated
             self.cachedUserEmail = userEmail
 
-            // Update menu bar icon
-            self.updateMenuBarIcon()
+            // Rebuild menu with updated values
+            self.rebuildMenu()
         }
-    }
-
-    private func updateMenuBarIcon() {
-        // Keep icon simple - always white/template style
     }
 
     @objc private func openWindow() {

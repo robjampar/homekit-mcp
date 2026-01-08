@@ -17,14 +17,18 @@ from graphql_api import GraphQLAPI
 
 from homecast.auth import verify_token, extract_token_from_header
 from homecast.middleware import _auth_context_var
-from homecast.api.home import HomeAPI, set_home_id
+from homecast.api.home import HomeAPI, set_home_id, _sanitize_name, _simplify_accessory
 from homecast.models.db.database import get_session
 from homecast.models.db.repositories import HomeRepository, UserRepository
+from homecast.websocket.handler import route_request, get_user_device_id
 
 logger = logging.getLogger(__name__)
 
 # Regex to validate home_id format (8 hex characters)
 HOME_ID_PATTERN = re.compile(r'^[0-9a-f]{8}$', re.IGNORECASE)
+
+# Placeholder for injecting home state into tool descriptions
+STATE_PLACEHOLDER = "__HOMECAST_STATE__"
 # Regex to extract home_id from path: {home_id}/... or /{home_id}/... (Mount strips /home/ prefix)
 HOME_PATH_PATTERN = re.compile(r'^/?([^/]+)(/.*)?$')
 
@@ -66,6 +70,51 @@ def get_home_auth_enabled(user_id, home_id_prefix: str, session) -> bool:
         return home_settings.get("auth_enabled", True)
     except (json.JSONDecodeError, TypeError):
         return True  # Default to auth required on parse error
+
+
+async def _fetch_home_state_summary(home_id_prefix: str) -> str:
+    """
+    Fetch home state and return a compact summary for injection into tool docs.
+
+    Returns a string like:
+    Living: Light1, Light2, Thermostat; Kitchen: Outlet, Light
+    """
+    try:
+        with get_session() as db:
+            home = HomeRepository.get_by_prefix(db, home_id_prefix)
+            if not home:
+                return "(home not found)"
+
+            device_id = await get_user_device_id(home.user_id)
+            if not device_id:
+                return "(device not connected)"
+
+            full_home_id = str(home.home_id)
+
+        # Fetch accessories
+        result = await route_request(
+            device_id=device_id,
+            action="accessories.list",
+            payload={"homeId": full_home_id, "includeValues": True}
+        )
+
+        # Build compact room summary
+        rooms = {}
+        for acc in result.get("accessories", []):
+            room = _sanitize_name(acc.get("roomName", "Unknown"))
+            name = _sanitize_name(acc.get("name", "Unknown"))
+            simplified = _simplify_accessory(acc)
+
+            if room not in rooms:
+                rooms[room] = {}
+            rooms[room][name] = simplified
+
+        # Format as compact JSON
+        return json.dumps(rooms, separators=(',', ':'))
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch home state for injection: {e}")
+        return "(state unavailable)"
 
 
 # Create the MCP GraphQL API (reused for all requests)
@@ -153,15 +202,65 @@ class HomeScopedApp:
 
         try:
             # Create modified scope with path stripped of /home/{home_id} prefix
-            # The remaining path goes to the MCP app (e.g., /mcp or /)
             child_scope = dict(scope)
             child_scope["path"] = remaining_path
             child_scope["raw_path"] = remaining_path.encode()
-            # Store home_id in scope for potential use by middleware
             child_scope["home_id"] = home_id
 
-            logger.info(f"Delegating to MCP app with path: {remaining_path}")
-            await self.app(child_scope, receive, send)
+            logger.debug(f"Delegating to MCP app with path: {remaining_path}")
+
+            # Wrap send to inject state into response (only if placeholder present)
+            response_started = False
+            response_body = bytearray()
+            original_headers = []
+
+            async def wrapped_send(message):
+                nonlocal response_started, response_body, original_headers
+
+                if message["type"] == "http.response.start":
+                    response_started = True
+                    original_headers = list(message.get("headers", []))
+                    # Don't send yet - buffer until we have body
+                    return
+
+                if message["type"] == "http.response.body":
+                    body = message.get("body", b"")
+                    response_body.extend(body)
+
+                    # If more_body is False or not present, we have the full response
+                    if not message.get("more_body", False):
+                        body_str = bytes(response_body).decode("utf-8", errors="replace")
+
+                        # Only fetch state if placeholder is present in response
+                        if STATE_PLACEHOLDER in body_str:
+                            home_state = await _fetch_home_state_summary(home_id)
+                            body_str = body_str.replace(STATE_PLACEHOLDER, home_state)
+                            response_body = bytearray(body_str.encode("utf-8"))
+
+                        # Update content-length header
+                        new_headers = []
+                        for name, value in original_headers:
+                            if name.lower() == b"content-length":
+                                new_headers.append((b"content-length", str(len(response_body)).encode()))
+                            else:
+                                new_headers.append((name, value))
+
+                        # Send the modified response
+                        await send({
+                            "type": "http.response.start",
+                            "status": 200,
+                            "headers": new_headers,
+                        })
+                        await send({
+                            "type": "http.response.body",
+                            "body": bytes(response_body),
+                        })
+                    return
+
+                # Pass through other message types
+                await send(message)
+
+            await self.app(child_scope, receive, wrapped_send)
 
         finally:
             # Clean up context

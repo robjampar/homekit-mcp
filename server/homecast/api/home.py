@@ -94,6 +94,9 @@ CHAR_TO_SIMPLE = {
 # Reverse mapping for setting values
 SIMPLE_TO_CHAR = {v: k for k, v in CHAR_TO_SIMPLE.items()}
 
+# Add UUID-based reverse mappings
+SIMPLE_TO_CHAR['hvac_mode'] = '000000B2-0000-1000-8000-0026BB765291'
+
 # Characteristics to skip (info only, not useful for control)
 SKIP_CHARACTERISTICS = {
     'name', 'manufacturer', 'model', 'serial_number',
@@ -102,8 +105,8 @@ SKIP_CHARACTERISTICS = {
 
 # UUID mappings for common HomeKit UUIDs
 UUID_TO_SIMPLE = {
-    '000000b1-0000-1000-8000-0026bb765291': 'current_heater_state',  # current heater/cooler state
-    '000000b2-0000-1000-8000-0026bb765291': 'target_heater_state',   # target heater/cooler state
+    '000000b1-0000-1000-8000-0026bb765291': 'hvac_state',   # current heater/cooler state
+    '000000b2-0000-1000-8000-0026bb765291': 'hvac_mode',    # target heater/cooler state
 }
 
 # Service types to skip
@@ -174,6 +177,16 @@ def _format_value(value: Any, simple_name: str) -> Any:
 
     if simple_name == 'alarm_target':
         states = {0: 'home', 1: 'away', 2: 'night', 3: 'off'}
+        return states.get(int(value), f'unknown_{value}')
+
+    # HVAC state - current heater/cooler state
+    if simple_name == 'hvac_state':
+        states = {0: 'inactive', 1: 'idle', 2: 'heating', 3: 'cooling'}
+        return states.get(int(value), f'unknown_{value}')
+
+    # HVAC mode - target heater/cooler state
+    if simple_name == 'hvac_mode':
+        states = {0: 'auto', 1: 'heat', 2: 'cool'}
         return states.get(int(value), f'unknown_{value}')
 
     # Lock state
@@ -304,6 +317,11 @@ def _value_for_characteristic(simple_name: str, value: Any) -> tuple[str, Any]:
         states = {'home': 0, 'away': 1, 'night': 2, 'off': 3}
         return char_type, states.get(str(value).lower(), int(value) if isinstance(value, int) else 0)
 
+    if simple_name == 'hvac_mode':
+        # Convert string back to number
+        states = {'auto': 0, 'heat': 1, 'cool': 2}
+        return char_type, states.get(str(value).lower(), int(value) if isinstance(value, int) else 0)
+
     return char_type, value
 
 
@@ -411,15 +429,22 @@ class HomeAPI:
 
         Args:
             state: Dictionary with room names as keys, containing accessories and values to set.
-                   Only include properties listed in _settable from get_state.
 
-        Example request:
-            {
-              "Living": {
-                "Ceiling_Light": {"on": true, "brightness": 100},
-                "Thermostat": {"heat_target": 22}
-              }
-            }
+        Settable properties by device type:
+            light: on (bool), brightness (0-100), hue (0-360), saturation (0-100), color_temp (140-500)
+            climate: active (bool), heat_target (temp), cool_target (temp), hvac_mode (auto/heat/cool)
+            switch/outlet: on (bool)
+            lock: lock_target (bool, true=lock)
+            alarm: alarm_target (home/away/night/off)
+            fan: on (bool), speed (0-100)
+            speaker: volume (0-100), mute (bool)
+            blind: target (0-100 position)
+            valve: active (bool)
+
+        Current state: __HOMECAST_STATE__
+
+        Example:
+            {"Living": {"Ceiling_Light": {"on": true, "brightness": 100}}}
 
         Returns:
             {"ok": 2, "failed": []} on success

@@ -53,7 +53,7 @@ class TestGetSimpleName:
         assert _get_simple_name("23B88013-D5E2-5300-9DF1-D51D90CADED9") is None
 
     def test_known_uuid(self):
-        assert _get_simple_name("000000B1-0000-1000-8000-0026BB765291") == "current_heater_state"
+        assert _get_simple_name("000000B1-0000-1000-8000-0026BB765291") == "hvac_state"
 
     def test_passthrough_unknown(self):
         # Unknown but potentially useful characteristics pass through

@@ -2,13 +2,13 @@
   "Living": {
     "Living_Room_Underfloor_Heating": {
       "type": "climate",
-      "target_heater_state": true,
+      "hvac_mode": "heat",
       "current_temp": 14.8,
       "active": false,
-      "current_heater_state": false,
+      "hvac_state": "inactive",
       "heat_target": 26.5,
       "_settable": [
-        "target_heater_state",
+        "hvac_mode",
         "active",
         "heat_target"
       ]
@@ -17,13 +17,13 @@
       "type": "climate",
       "active": false,
       "current_temp": 17.8,
-      "current_heater_state": false,
+      "hvac_state": "inactive",
       "heat_target": 20.0,
-      "target_heater_state": true,
+      "hvac_mode": "heat",
       "_settable": [
         "active",
         "heat_target",
-        "target_heater_state"
+        "hvac_mode"
       ]
     },
     "Living_Room": {
@@ -111,13 +111,13 @@
     },
     "Bedroom_3_Underfloor_Heating": {
       "type": "climate",
-      "target_heater_state": true,
+      "hvac_mode": "heat",
       "current_temp": 15.8,
       "active": true,
       "heat_target": 18.0,
-      "current_heater_state": 2,
+      "hvac_state": "heating",
       "_settable": [
-        "target_heater_state",
+        "hvac_mode",
         "active",
         "heat_target"
       ]
@@ -161,12 +161,12 @@
       "current_temp": 14.8,
       "active": true,
       "heat_target": 18.0,
-      "current_heater_state": 2,
-      "target_heater_state": true,
+      "hvac_state": "heating",
+      "hvac_mode": "heat",
       "_settable": [
         "active",
         "heat_target",
-        "target_heater_state"
+        "hvac_mode"
       ]
     },
     "Kitchen_Door": {
@@ -229,12 +229,12 @@
       "active": true,
       "heat_target": 18.0,
       "current_temp": 20.8,
-      "current_heater_state": false,
-      "target_heater_state": true,
+      "hvac_state": "inactive",
+      "hvac_mode": "heat",
       "_settable": [
         "active",
         "heat_target",
-        "target_heater_state"
+        "hvac_mode"
       ]
     },
     "Hue_ambiance_spot": {
@@ -273,13 +273,13 @@
       "type": "climate",
       "current_temp": 22.2,
       "heat_target": 25.0,
-      "current_heater_state": 2,
+      "hvac_state": "heating",
       "active": true,
-      "target_heater_state": true,
+      "hvac_mode": "heat",
       "_settable": [
         "heat_target",
         "active",
-        "target_heater_state"
+        "hvac_mode"
       ]
     },
     "Bedroom_2_Ensuite_Radiator": {

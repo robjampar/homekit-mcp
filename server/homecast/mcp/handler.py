@@ -85,6 +85,8 @@ async def mcp_endpoint(request: Request) -> Response:
     home_id_raw = request.path_params.get("home_id", "")
     home_id = validate_home_id(home_id_raw)
 
+    logger.info(f"MCP endpoint called: path={request.url.path}, home_id_raw='{home_id_raw}', validated='{home_id}'")
+
     if not home_id:
         return JSONResponse(
             {"error": f"Invalid home_id: must be 8 hex characters, got '{home_id_raw}'"},
@@ -93,7 +95,9 @@ async def mcp_endpoint(request: Request) -> Response:
 
     # Look up home to find owner and check auth settings
     with get_session() as session:
+        logger.info(f"Looking up home with prefix: {home_id}")
         home = HomeRepository.get_by_prefix(session, home_id)
+        logger.info(f"HomeRepository.get_by_prefix result: {home}")
         if not home:
             return JSONResponse(
                 {"error": f"Unknown home: {home_id}"},

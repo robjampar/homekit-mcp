@@ -42,10 +42,15 @@ class HomeRepository(BaseRepository):
         homes = session.exec(select(Home)).all()
         prefix_lower = home_id_prefix.lower()
 
+        logger.info(f"Looking for home with prefix '{prefix_lower}', found {len(homes)} homes in DB")
+
         for home in homes:
-            if str(home.home_id).lower().startswith(prefix_lower):
+            home_id_str = str(home.home_id).lower()
+            logger.info(f"Checking home: {home_id_str} starts with {prefix_lower}? {home_id_str.startswith(prefix_lower)}")
+            if home_id_str.startswith(prefix_lower):
                 return home
 
+        logger.warning(f"No home found matching prefix '{prefix_lower}'")
         return None
 
     @classmethod

@@ -149,7 +149,25 @@ class ConnectionManager:
 
         logger.info(f"Device connected: {device_id} (user: {auth.user_id}, instance: {instance_id})")
 
+        # Proactively fetch and cache homes for MCP routing
+        asyncio.create_task(self._fetch_and_cache_homes(device_id))
+
         return device
+
+    async def _fetch_and_cache_homes(self, device_id: str):
+        """Fetch homes from device and cache them for MCP routing."""
+        try:
+            # Small delay to ensure device is ready
+            await asyncio.sleep(0.5)
+
+            if device_id not in self.connections:
+                return
+
+            result = await self.send_request(device_id, "homes.list", {}, timeout=10.0)
+            # The response will be handled by handle_message which calls _cache_homes
+            logger.info(f"Proactively fetched homes for device {device_id}")
+        except Exception as e:
+            logger.warning(f"Failed to proactively fetch homes for {device_id}: {e}")
 
     async def disconnect(self, device_id: str):
         """Handle device disconnection."""

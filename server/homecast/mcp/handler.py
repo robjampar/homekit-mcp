@@ -140,20 +140,30 @@ async def mcp_endpoint(request: Request) -> Response:
 
         async def receive():
             body = await request.body()
+            logger.info(f"MCP receive called, body length: {len(body)}")
             return {"type": "http.request", "body": body, "more_body": False}
 
         async def send(message):
             nonlocal response_started, response_status, response_headers, response_body
+            logger.info(f"MCP send called: type={message.get('type')}")
             if message["type"] == "http.response.start":
                 response_started = True
                 response_status = message["status"]
                 response_headers = message.get("headers", [])
+                logger.info(f"MCP response started: status={response_status}")
             elif message["type"] == "http.response.body":
                 body = message.get("body", b"")
                 if body:
                     response_body.append(body)
+                    logger.info(f"MCP response body: {body[:500]}")  # First 500 bytes
 
-        await _mcp_http_app(request.scope, receive, send)
+        # Modify scope to set path to root - MCP app expects requests at /
+        mcp_scope = dict(request.scope)
+        mcp_scope["path"] = "/"
+        mcp_scope["raw_path"] = b"/"
+        logger.info(f"Calling MCP app with modified scope path: {mcp_scope.get('path')} (original: {request.scope.get('path')})")
+        await _mcp_http_app(mcp_scope, receive, send)
+        logger.info(f"MCP app returned, status={response_status}")
 
         # Build and return the response
         headers = {

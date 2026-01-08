@@ -477,7 +477,7 @@ class API:
                 return UpdateSettingsResult(success=False)
 
     @field
-    async def my_devices(self) -> List[DeviceInfo]:
+    async def devices(self) -> List[DeviceInfo]:
         """Get all active sessions for the current user. Requires authentication."""
         auth = require_auth()
 
@@ -526,25 +526,6 @@ class API:
                 return False
 
             return SessionRepository.delete_by_device_id(db, device_id)
-
-    @field
-    async def online_devices(self) -> List[DeviceInfo]:
-        """Get all online device sessions for the current user. Requires authentication."""
-        auth = require_auth()
-
-        with get_session() as db:
-            sessions = SessionRepository.get_user_sessions(db, auth.user_id, SessionType.DEVICE)
-
-            return [
-                DeviceInfo(
-                    id=str(s.id),
-                    device_id=s.device_id,
-                    name=s.name,
-                    session_type=s.session_type,
-                    last_seen_at=s.last_heartbeat.isoformat() if s.last_heartbeat else None
-                )
-                for s in sessions
-            ]
 
     # --- HomeKit Commands (via WebSocket to Mac app) ---
 

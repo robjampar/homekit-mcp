@@ -11,7 +11,6 @@ class WebSocketClient {
     private var webSocketTask: URLSessionWebSocketTask?
     private var isConnected = false
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 5
     private var pingTask: Task<Void, Never>?
 
     // Callbacks
@@ -19,6 +18,7 @@ class WebSocketClient {
     var onDisconnect: ((Error?) -> Void)?
     var onAuthError: (() -> Void)?
     var onWebClientsListeningChanged: ((Bool) -> Void)?
+    var onPingHealthChanged: ((Int) -> Void)?  // Reports consecutive ping failures (0 = healthy)
 
     init(url: URL, token: String, homeKitManager: HomeKitManager) {
         self.url = url
@@ -534,9 +534,14 @@ class WebSocketClient {
                 if isConnected {
                     webSocketTask?.sendPing { [weak self] error in
                         guard let self = self else { return }
+                        let previousFailures = self.consecutivePingFailures
                         if let error = error {
                             print("[WebSocket] ⚠️ Ping failed: \(error)")
                             self.consecutivePingFailures += 1
+                            // Notify about health change
+                            if self.consecutivePingFailures != previousFailures {
+                                self.onPingHealthChanged?(self.consecutivePingFailures)
+                            }
                             if self.consecutivePingFailures >= self.maxPingFailures {
                                 print("[WebSocket] ❌ Too many ping failures (\(self.consecutivePingFailures)), forcing reconnect")
                                 Task { @MainActor in
@@ -546,6 +551,10 @@ class WebSocketClient {
                             }
                         } else {
                             self.consecutivePingFailures = 0
+                            // Notify about health restored
+                            if previousFailures > 0 {
+                                self.onPingHealthChanged?(0)
+                            }
                         }
                     }
                 }
@@ -568,21 +577,14 @@ class WebSocketClient {
             }
         }
 
-        // Check for auth-related errors (connection closed immediately or max retries exceeded)
-        if reconnectAttempts >= maxReconnectAttempts {
-            Task { @MainActor in
-                logManager.log("Max reconnect attempts reached - signing out", category: .websocket)
-            }
-            onAuthError?()
-            return
-        }
-
-        // Attempt reconnection
+        // Always attempt reconnection - don't give up on network failures
         reconnectAttempts += 1
-        let delay = Double(reconnectAttempts) * 2.0 // Exponential backoff
+
+        // Exponential backoff with cap at 30 seconds
+        let delay = min(Double(reconnectAttempts) * 2.0, 30.0)
 
         Task { @MainActor in
-            logManager.log("Reconnecting in \(Int(delay))s (attempt \(reconnectAttempts)/\(maxReconnectAttempts))", category: .websocket)
+            logManager.log("Reconnecting in \(Int(delay))s (attempt \(reconnectAttempts))", category: .websocket)
         }
 
         Task {
@@ -591,6 +593,9 @@ class WebSocketClient {
                 try await connect()
             } catch {
                 print("[WebSocket] Reconnect attempt \(reconnectAttempts) failed: \(error)")
+                // If connect() throws, handleDisconnect will be called again from the receive loop
+                // or we need to trigger it manually for connection failures
+                self.handleDisconnect(error: error)
             }
         }
     }

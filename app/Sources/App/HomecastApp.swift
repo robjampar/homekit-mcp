@@ -293,12 +293,21 @@ struct WebViewContainer: UIViewRepresentable {
         // Add message handler for native bridge
         config.userContentController.add(context.coordinator, name: "homecast")
 
-        // Only inject token at document start if we have one
-        // Don't clear localStorage - let it persist naturally across reloads
+        // Sync auth state with WebView at document start
         if let token = authToken {
+            // Logged in - inject token
             let tokenScript = "localStorage.setItem('homekit-token', '\(token)'); console.log('[Homecast] Token pre-injected');"
             let script = WKUserScript(
                 source: tokenScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+            config.userContentController.addUserScript(script)
+        } else {
+            // Not logged in - clear any stale token in WebView
+            let clearScript = "localStorage.removeItem('homekit-token'); console.log('[Homecast] Token cleared - not logged in');"
+            let script = WKUserScript(
+                source: clearScript,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
@@ -424,6 +433,13 @@ struct WebViewContainer: UIViewRepresentable {
                 Task { @MainActor in
                     connectionManager.signOut()
                 }
+            case "copy":
+                if let text = body["text"] as? String {
+                    let textCopy = String(text)
+                    Task { @MainActor in
+                        UIPasteboard.general.string = textCopy
+                    }
+                }
             default:
                 print("[WebView] Unknown action: \(action)")
             }
@@ -482,15 +498,39 @@ struct LogsSheet: View {
     var dismiss: () -> Void
     @State private var showingSignOutConfirm = false
 
+    private var connectionStatusColor: Color {
+        if !connectionManager.isNetworkAvailable {
+            return .red
+        } else if !connectionManager.isConnected {
+            return .orange
+        } else if connectionManager.consecutivePingFailures > 0 {
+            return .yellow
+        } else {
+            return .green
+        }
+    }
+
+    private var connectionStatusText: String {
+        if !connectionManager.isNetworkAvailable {
+            return "No Network"
+        } else if !connectionManager.isConnected {
+            return "Offline"
+        } else if connectionManager.consecutivePingFailures > 0 {
+            return "Connected (ping \(connectionManager.consecutivePingFailures)/2)"
+        } else {
+            return "Connected"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Compact header with inline status
             HStack(spacing: 8) {
                 // Connection indicator
                 Circle()
-                    .fill(connectionManager.isConnected ? Color.green : Color.orange)
+                    .fill(connectionStatusColor)
                     .frame(width: 6, height: 6)
-                Text(connectionManager.isConnected ? "Connected" : "Offline")
+                Text(connectionStatusText)
                     .font(.caption)
                     .foregroundStyle(.primary)
 

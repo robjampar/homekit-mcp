@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import Network
 
 /// Manages authentication and WebSocket connection to the relay server
 @MainActor
@@ -11,12 +12,19 @@ class ConnectionManager: NSObject, ObservableObject, HomeKitManagerDelegate {
     @Published private(set) var isAuthenticated: Bool = false
     @Published private(set) var serverURL: String = ""
     @Published private(set) var savedEmail: String = ""
+    @Published private(set) var consecutivePingFailures: Int = 0  // 0 = healthy, 1+ = ping failures
 
     // MARK: - Dependencies
 
     let homeKitManager: HomeKitManager
     private var webSocketClient: WebSocketClient?
-    private(set) var authToken: String?
+    @Published private(set) var authToken: String?
+
+    // MARK: - Network Monitoring
+
+    private let networkMonitor = NWPathMonitor()
+    private let networkMonitorQueue = DispatchQueue(label: "cloud.homecast.networkMonitor")
+    @Published private(set) var isNetworkAvailable: Bool = true
 
     // MARK: - Keychain Keys
 
@@ -84,6 +92,27 @@ class ConnectionManager: NSObject, ObservableObject, HomeKitManagerDelegate {
         super.init()
         // Set ourselves as the delegate to receive characteristic updates
         self.homeKitManager.delegate = self
+        // Start monitoring network connectivity
+        startNetworkMonitoring()
+    }
+
+    private func startNetworkMonitoring() {
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                let wasAvailable = self.isNetworkAvailable
+                self.isNetworkAvailable = path.status == .satisfied
+
+                print("[ConnectionManager] Network status: \(path.status == .satisfied ? "available" : "unavailable")")
+
+                // If network just became available and we're authenticated but not connected, reconnect immediately
+                if self.isNetworkAvailable && !wasAvailable && self.isAuthenticated && !self.isConnected {
+                    print("[ConnectionManager] 🌐 Network restored - triggering immediate reconnect")
+                    await self.reconnect()
+                }
+            }
+        }
+        networkMonitor.start(queue: networkMonitorQueue)
     }
 
     // MARK: - Authentication
@@ -286,6 +315,12 @@ class ConnectionManager: NSObject, ObservableObject, HomeKitManagerDelegate {
             }
         }
 
+        webSocketClient?.onPingHealthChanged = { [weak self] failures in
+            Task { @MainActor in
+                self?.consecutivePingFailures = failures
+            }
+        }
+
         webSocketClient?.onWebClientsListeningChanged = { [weak self] listening in
             Task { @MainActor in
                 guard let self = self else { return }
@@ -311,6 +346,7 @@ class ConnectionManager: NSObject, ObservableObject, HomeKitManagerDelegate {
         webSocketClient?.disconnect()
         webSocketClient = nil
         isConnected = false
+        consecutivePingFailures = 0
         // Stop observing when disconnected
         homeKitManager.stopObservingChanges()
     }

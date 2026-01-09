@@ -284,7 +284,10 @@ class HomesAPI:
             - Setting a group affects ALL accessories in that group
             - Individual accessories can still be controlled directly by their key
 
-        Examples (keys must match exactly as shown in get_state, including the _xxxx ID suffix):
+        Current state (includes _meta.fetched_at UTC - if within 10s or current time unknown, no need to call get_state):
+        __HOMECAST_HOMES_STATE__
+
+        Examples (keys must match exactly as shown in current state, including the _xxxx ID suffix):
             Single home: {"my_house_0bf8": {"living_a1b2": {"lamp_c3d4": {"on": true}}}}
             Multiple homes: {"house_0bf8": {"living_a1b2": {"lamp_c3d4": {"on": true}}}, "cabin_1c2d": {"den_e5f6": {"light_7890": {"on": false}}}}
 

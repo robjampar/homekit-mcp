@@ -51,6 +51,29 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r'\s+', '_', name.strip()).lower()
 
 
+def _unique_key(name: str, uuid: str) -> str:
+    """Generate unique key: sanitized_name_shortid (last 4 chars of UUID)."""
+    sanitized = _sanitize_name(name)
+    short_id = uuid[-4:].lower() if uuid else "0000"
+    return f"{sanitized}_{short_id}"
+
+
+# Aliases for clarity
+def _room_key(name: str, room_id: str) -> str:
+    """Generate unique room key."""
+    return _unique_key(name, room_id)
+
+
+def _accessory_key(name: str, accessory_id: str) -> str:
+    """Generate unique accessory key."""
+    return _unique_key(name, accessory_id)
+
+
+def _group_key(name: str, group_id: str) -> str:
+    """Generate unique group key."""
+    return _unique_key(name, group_id)
+
+
 # --- Characteristic Mapping ---
 # Maps HomeKit characteristic types to simple names
 # Format: characteristic_type -> simple_name
@@ -414,31 +437,34 @@ class HomeAPI:
 
         for accessory in accessories_result.get("accessories", []):
             room_name = accessory.get("roomName", "Unknown")
+            room_id = accessory.get("roomId", "")
 
             # Filter by rooms if specified
             if rooms_filter and room_name.lower() not in rooms_filter:
                 continue
 
-            room_key = _sanitize_name(room_name)
+            room_key = _room_key(room_name, room_id)
             if room_key not in result:
                 result[room_key] = {}
 
-            accessory_name = accessory.get("name", "Unknown")
-            accessory_key = _sanitize_name(accessory_name)
+            # Use unique key: name_shortid
+            accessory_key = _accessory_key(accessory.get("name", "Unknown"), accessory.get("id", ""))
 
             result[room_key][accessory_key] = _simplify_accessory(accessory)
 
         # Add service groups in the room of their first member
         for group in groups_result.get("serviceGroups", []):
-            group_name = _sanitize_name(group.get("name", "Unknown"))
+            group_id = group.get("id", "")
+            group_key = _group_key(group.get("name", "Unknown"), group_id)
             member_ids = group.get("accessoryIds", [])
             if member_ids:
                 first_member = accessory_by_id.get(member_ids[0])
                 if first_member:
                     room_name = first_member.get("roomName", "Unknown")
+                    room_id = first_member.get("roomId", "")
                     if rooms_filter and room_name.lower() not in rooms_filter:
                         continue
-                    room_key = _sanitize_name(room_name)
+                    room_key = _room_key(room_name, room_id)
                     if room_key not in result:
                         result[room_key] = {}
 
@@ -446,16 +472,16 @@ class HomeAPI:
                     group_state = _simplify_accessory(first_member)
                     group_state["group"] = True
 
-                    # Add all member accessories with their states
+                    # Add all member accessories with their states (with unique keys)
                     accessories_dict = {}
                     for acc_id in member_ids:
                         member = accessory_by_id.get(acc_id)
                         if member:
-                            member_key = _sanitize_name(member.get("name", "Unknown"))
+                            member_key = _accessory_key(member.get("name", "Unknown"), acc_id)
                             accessories_dict[member_key] = _simplify_accessory(member)
                     group_state["accessories"] = accessories_dict
 
-                    result[room_key][group_name] = group_state
+                    result[room_key][group_key] = group_state
 
         # Add scenes
         result["scenes"] = [s.get("name") for s in scenes_result.get("scenes", [])]

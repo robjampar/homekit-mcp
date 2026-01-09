@@ -17,7 +17,7 @@ from graphql_api import GraphQLAPI
 
 from homecast.auth import verify_token, extract_token_from_header
 from homecast.middleware import _auth_context_var
-from homecast.api.home import HomeAPI, set_home_id, _sanitize_name, _simplify_accessory
+from homecast.api.home import HomeAPI, set_home_id, _room_key, _accessory_key, _group_key, _simplify_accessory
 from homecast.models.db.database import get_session
 from homecast.models.db.repositories import HomeRepository, UserRepository
 from homecast.websocket.handler import route_request, get_user_device_id
@@ -114,23 +114,23 @@ async def _fetch_home_state_summary(home_id_prefix: str) -> str:
         # Build compact room summary
         state = {}
         for acc in accessories_result.get("accessories", []):
-            room = _sanitize_name(acc.get("roomName", "Unknown"))
-            name = _sanitize_name(acc.get("name", "Unknown"))
+            room_key = _room_key(acc.get("roomName", "Unknown"), acc.get("roomId", ""))
+            acc_key = _accessory_key(acc.get("name", "Unknown"), acc.get("id", ""))
             simplified = _simplify_accessory(acc)
 
-            if room not in state:
-                state[room] = {}
-            state[room][name] = simplified
+            if room_key not in state:
+                state[room_key] = {}
+            state[room_key][acc_key] = simplified
 
         # Add service groups in the room of their first member
         for group in groups_result.get("serviceGroups", []):
-            group_name = _sanitize_name(group.get("name", "Unknown"))
+            group_id = group.get("id", "")
+            grp_key = _group_key(group.get("name", "Unknown"), group_id)
             member_ids = group.get("accessoryIds", [])
             if member_ids:
                 first_member = accessory_by_id.get(member_ids[0])
                 if first_member:
-                    room_name = first_member.get("roomName", "Unknown")
-                    room_key = _sanitize_name(room_name)
+                    room_key = _room_key(first_member.get("roomName", "Unknown"), first_member.get("roomId", ""))
                     if room_key not in state:
                         state[room_key] = {}
 
@@ -138,16 +138,16 @@ async def _fetch_home_state_summary(home_id_prefix: str) -> str:
                     group_state = _simplify_accessory(first_member)
                     group_state["group"] = True
 
-                    # Add all member accessories with their states
+                    # Add all member accessories with their states (with unique keys)
                     accessories_dict = {}
                     for acc_id in member_ids:
                         member = accessory_by_id.get(acc_id)
                         if member:
-                            member_key = _sanitize_name(member.get("name", "Unknown"))
+                            member_key = _accessory_key(member.get("name", "Unknown"), acc_id)
                             accessories_dict[member_key] = _simplify_accessory(member)
                     group_state["accessories"] = accessories_dict
 
-                    state[room_key][group_name] = group_state
+                    state[room_key][grp_key] = group_state
 
         # Format as compact JSON
         return json.dumps(state, separators=(',', ':'))

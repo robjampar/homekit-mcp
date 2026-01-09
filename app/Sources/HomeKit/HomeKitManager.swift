@@ -412,10 +412,32 @@ class HomeKitManager: NSObject, ObservableObject {
         return result.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
-    /// Find an accessory by sanitized room name and accessory name
-    func findAccessoryByName(roomName: String, accessoryName: String, homeId: String? = nil) -> HMAccessory? {
-        let targetRoom = roomName.lowercased()
-        let targetAccessory = accessoryName.lowercased()
+    /// Generate unique key: sanitized_name_shortid (last 4 chars of UUID)
+    private func uniqueKey(_ name: String, id: UUID) -> String {
+        let sanitized = sanitizeName(name)
+        let shortId = String(id.uuidString.suffix(4)).lowercased()
+        return "\(sanitized)_\(shortId)"
+    }
+
+    /// Generate unique room key
+    private func roomKey(_ name: String, id: UUID) -> String {
+        return uniqueKey(name, id: id)
+    }
+
+    /// Generate unique accessory key
+    private func accessoryKey(_ name: String, id: UUID) -> String {
+        return uniqueKey(name, id: id)
+    }
+
+    /// Generate unique group key
+    private func groupKey(_ name: String, id: UUID) -> String {
+        return uniqueKey(name, id: id)
+    }
+
+    /// Find an accessory by key (format: sanitized_name_shortid for both room and accessory)
+    func findAccessoryByKey(roomKey: String, accessoryKey: String, homeId: String? = nil) -> HMAccessory? {
+        let targetRoomKey = roomKey.lowercased()
+        let targetAccKey = accessoryKey.lowercased()
 
         let homesToSearch: [HMHome]
         if let homeId = homeId, let uuid = UUID(uuidString: homeId),
@@ -427,10 +449,11 @@ class HomeKitManager: NSObject, ObservableObject {
 
         for home in homesToSearch {
             for accessory in home.accessories {
-                let accRoom = sanitizeName(accessory.room?.name ?? "unknown")
-                let accName = sanitizeName(accessory.name)
+                guard let room = accessory.room else { continue }
+                let accRoomKey = self.roomKey(room.name, id: room.uniqueIdentifier)
+                let accKey = self.accessoryKey(accessory.name, id: accessory.uniqueIdentifier)
 
-                if accRoom == targetRoom && accName == targetAccessory {
+                if accRoomKey == targetRoomKey && accKey == targetAccKey {
                     return accessory
                 }
             }
@@ -438,9 +461,9 @@ class HomeKitManager: NSObject, ObservableObject {
         return nil
     }
 
-    /// Find a service group by sanitized name
-    func findServiceGroupByName(groupName: String, homeId: String? = nil) -> (HMServiceGroup, HMHome)? {
-        let targetGroup = groupName.lowercased()
+    /// Find a service group by key (format: sanitized_name_shortid)
+    func findServiceGroupByKey(groupKey: String, homeId: String? = nil) -> (HMServiceGroup, HMHome)? {
+        let targetKey = groupKey.lowercased()
 
         let homesToSearch: [HMHome]
         if let homeId = homeId, let uuid = UUID(uuidString: homeId),
@@ -452,7 +475,8 @@ class HomeKitManager: NSObject, ObservableObject {
 
         for home in homesToSearch {
             for group in home.serviceGroups {
-                if sanitizeName(group.name) == targetGroup {
+                let generatedKey = self.groupKey(group.name, id: group.uniqueIdentifier)
+                if generatedKey == targetKey {
                     return (group, home)
                 }
             }
@@ -474,8 +498,8 @@ class HomeKitManager: NSObject, ObservableObject {
             for (accKey, properties) in accessories {
                 let fullKey = "\(roomKey)/\(accKey)"
 
-                // Try to find as accessory first
-                if let accessory = findAccessoryByName(roomName: roomKey, accessoryName: accKey, homeId: homeId) {
+                // Try to find as accessory first (using key format: name_shortid)
+                if let accessory = findAccessoryByKey(roomKey: roomKey, accessoryKey: accKey, homeId: homeId) {
                     for (prop, value) in properties {
                         // Skip metadata properties
                         if prop == "type" || prop == "_settable" {
@@ -500,8 +524,8 @@ class HomeKitManager: NSObject, ObservableObject {
                         }
                     }
                 }
-                // Try as service group
-                else if let (group, _) = findServiceGroupByName(groupName: accKey, homeId: homeId) {
+                // Try as service group (using key format: name_shortid)
+                else if let (group, _) = findServiceGroupByKey(groupKey: accKey, homeId: homeId) {
                     for (prop, value) in properties {
                         if prop == "type" || prop == "_settable" {
                             continue

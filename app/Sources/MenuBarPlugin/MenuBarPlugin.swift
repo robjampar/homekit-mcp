@@ -62,10 +62,6 @@ public class MenuBarPlugin: NSObject {
         }
 
         // Attach menu directly so it inherits proper system appearance
-        rebuildMenu()
-    }
-
-    private func rebuildMenu() {
         statusItem?.menu = buildMenu()
     }
 

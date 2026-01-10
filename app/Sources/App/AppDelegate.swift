@@ -186,6 +186,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let titlebar = windowScene.titlebar {
             titlebar.titleVisibility = .hidden
             titlebar.toolbar = nil
+            // Separate the title bar so it doesn't capture clicks
+            titlebar.separatorStyle = .none
         }
 
         // Set window size - minimum matches default opening size
